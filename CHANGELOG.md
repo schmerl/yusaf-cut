@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.1] - 2026-10-26
+
+### Fixed
+- **Repeated-source playback timing** — retain the selected output segment
+  when mapping native video frames back to the edited timeline. Seeking to a
+  later occurrence no longer jumps to the first matching source range. Playback
+  advances in output order through repeated clips and stops at the output end.
+
 ## [4.5.0] - 2026-10-26
 
 ### Added

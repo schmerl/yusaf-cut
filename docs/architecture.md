@@ -44,6 +44,12 @@ This document explains how the code maps to the spec at the repo root.
 
 ## The EDL contract
 
+Playback tracks the selected segment occurrence separately from native media
+time. Reused source ranges have identical media IDs/source times but distinct
+output positions. VideoPreview retains the occurrence chosen by output seeking
+and advances by timeline order at segment/media end; it must not pick the first
+matching source range when processing a native frame or time-update event.
+
 ### Transcript correction model and editor (Phases 1–4)
 
 Segments optionally carry versioned `transcript` metadata: occurrence ID,

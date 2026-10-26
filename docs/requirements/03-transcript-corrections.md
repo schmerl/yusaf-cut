@@ -1,8 +1,9 @@
 # Feature 3: Manual transcript corrections
 
 Status: Phases 1–4 implemented, with automated editor and model checks passing.
-The native manual checkpoint is pending. Contextual search/original-text UI
-(Phase 5) and the protected re-transcription workflow (Phase 6) remain pending.
+The user verified Phase 4 editing in 4.5.0; a repeated-source playback fix in
+4.5.1 awaits retest of the two flagged timing checks. Contextual search/original-text
+UI (Phase 5) and the protected re-transcription workflow (Phase 6) remain pending.
 
 Agent handoff: [phased implementation plan](../plans/03-transcript-corrections.md).
 

@@ -1,7 +1,23 @@
 # Implementation plan: feature 3 — manual transcript corrections
 
-Status: Phases 1–4 implemented; native manual editing checks remain pending.
-Phases 5–7 remain pending.
+Status: Phases 1–4 implemented. The user verified Phase 4 editing, save/reopen,
+captions, and snapshots in 4.5.0. Two timing checks identified a repeated-source
+playback bug; its 4.5.1 fix awaits native retest. Phases 5–7 remain pending.
+
+## Phase 4 manual feedback
+
+- The user's original checked items and timing notes are preserved in the
+  [manual checklist](../manual-transcript-corrections.md).
+- Confirmed regression: VideoPreview mapped a source time to the first matching
+  segment even after seeking to a later occurrence of the same range.
+- Fix branch: `fix/repeated-clip-playback`, version 4.5.1. The clock retains
+  occurrence identity and advances by output order, including native media end.
+- Automated evidence: actual VideoPreview/editor integration tests cover
+  paused/playing seeks, native time updates, repeated-clip transitions, output
+  end, and overlapping source ranges. All 127 frontend tests pass, including
+  trimmed-prefix playback.
+- Retest only the flagged timing cases in 4.5.1; previously verified editing
+  results are not being discarded or claimed as failures.
 
 ## Phases 2–4 checkpoint
 
