@@ -28,10 +28,30 @@ import { detectPauses } from "@/lib/ipc";
 
 /** Common English filler words to remove in one click. */
 const FILLER_TOKENS = new Set([
-  "um", "uh", "umm", "uhh", "hmm", "hm", "er", "err",
-  "like", "literally", "basically", "actually", "you know",
-  "i mean", "i guess", "sort of", "kind of", "you see",
-  "right", "okay", "ok", "so", "well", "anyway",
+  "um",
+  "uh",
+  "umm",
+  "uhh",
+  "hmm",
+  "hm",
+  "er",
+  "err",
+  "like",
+  "literally",
+  "basically",
+  "actually",
+  "you know",
+  "i mean",
+  "i guess",
+  "sort of",
+  "kind of",
+  "you see",
+  "right",
+  "okay",
+  "ok",
+  "so",
+  "well",
+  "anyway",
 ]);
 
 interface ToolboxProps {
@@ -84,37 +104,46 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
   }
 
   async function handleRemoveSilences() {
-    await withProcessingEdit("Trimming silences…", () => {
-      const removed = removeSilences();
-      if (removed === 0) {
-        pushToast({
-          title: "Nothing to trim",
-          description: "No silences longer than 600ms found between words.",
-        });
-      } else {
-        pushToast({
-          title: `Trimmed ${removed} silence${removed === 1 ? "" : "s"}`,
-          description: "Use ⌘Z to restore.",
-        });
-      }
-    });
+    try {
+      await withProcessingEdit("Trimming silences…", () => {
+        const removed = removeSilences();
+        if (removed === 0) {
+          pushToast({
+            title: "Nothing to trim",
+            description: "No silences longer than 600ms found between words.",
+          });
+        } else {
+          pushToast({
+            title: `Trimmed ${removed} silence${removed === 1 ? "" : "s"}`,
+            description: "Use ⌘Z to restore.",
+          });
+        }
+      });
+    } catch (error) {
+      pushToast({ title: "Cannot cut speech", description: String(error), variant: "destructive" });
+    }
   }
 
   async function handleRemoveFillers() {
-    await withProcessingEdit("Removing fillers…", () => {
-      const removed = deleteWordsByText(FILLER_TOKENS);
-      if (removed === 0) {
-        pushToast({
-          title: "No filler words found",
-          description: "None of the common filler words (um, uh, like…) appear in the transcript.",
-        });
-      } else {
-        pushToast({
-          title: `Removed ${removed} filler word${removed === 1 ? "" : "s"}`,
-          description: "Matching audio ranges are cut from the timeline. Use ⌘Z to restore.",
-        });
-      }
-    });
+    try {
+      await withProcessingEdit("Removing fillers…", () => {
+        const removed = deleteWordsByText(FILLER_TOKENS);
+        if (removed === 0) {
+          pushToast({
+            title: "No filler words found",
+            description:
+              "None of the common filler words (um, uh, like…) appear in the transcript.",
+          });
+        } else {
+          pushToast({
+            title: `Removed ${removed} filler word${removed === 1 ? "" : "s"}`,
+            description: "Matching audio ranges are cut from the timeline. Use ⌘Z to restore.",
+          });
+        }
+      });
+    } catch (error) {
+      pushToast({ title: "Cannot cut speech", description: String(error), variant: "destructive" });
+    }
   }
 
   async function handleShowPauses() {
@@ -285,7 +314,10 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[200px]">
-          <DropdownMenuItem onClick={() => void handleRemoveSilences()} disabled={!hasMultipleWords}>
+          <DropdownMenuItem
+            onClick={() => void handleRemoveSilences()}
+            disabled={!hasMultipleWords}
+          >
             <Scissors className="h-4 w-4 mr-2" />
             Trim silences
           </DropdownMenuItem>
@@ -326,10 +358,7 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
             Shorten pauses &gt; 1.0s to 0.3s
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={handleAddChapter}
-            disabled={project.segments.length === 0}
-          >
+          <DropdownMenuItem onClick={handleAddChapter} disabled={project.segments.length === 0}>
             <Bookmark className="h-4 w-4 mr-2" />
             {chapterCount > 0 ? `Add chapter (${chapterCount})` : "Add chapter"}
           </DropdownMenuItem>

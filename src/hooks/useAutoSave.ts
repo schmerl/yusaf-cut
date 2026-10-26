@@ -9,7 +9,9 @@
 
 import { useEffect, useRef } from "react";
 import { useProjectStore } from "@/stores/projectStore";
-import { saveProject } from "@/lib/ipc";
+import { saveProjectRevision } from "@/lib/projectSaves";
+import { projectSession } from "@/stores/projectStore";
+import { useUIStore } from "@/stores/uiStore";
 
 const DEBOUNCE_MS = 2000;
 const INTERVAL_MS = 30_000;
@@ -18,7 +20,10 @@ export function useAutoSave() {
   const project = useProjectStore((s) => s.project);
   const dirty = useProjectStore((s) => s.dirty);
   const filePath = useProjectStore((s) => s.filePath);
-  const markSaved = useProjectStore((s) => s.markSaved);
+  const onError = (error: unknown) =>
+    useUIStore
+      .getState()
+      .pushToast({ title: "Auto-save failed", description: String(error), variant: "destructive" });
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -26,13 +31,14 @@ export function useAutoSave() {
   useEffect(() => {
     if (!dirty || !filePath) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    const session = projectSession();
     debounceTimer.current = setTimeout(() => {
-      void saveProject(project, filePath).then(() => markSaved(filePath));
+      void saveProjectRevision(project, filePath, session).catch(onError);
     }, DEBOUNCE_MS);
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [project, dirty, filePath, markSaved]);
+  }, [project, dirty, filePath]);
 
   // Periodic save while dirty
   useEffect(() => {
@@ -40,11 +46,9 @@ export function useAutoSave() {
     const interval = setInterval(() => {
       const state = useProjectStore.getState();
       if (state.dirty && state.filePath) {
-        void saveProject(state.project, state.filePath).then(() =>
-          markSaved(state.filePath!),
-        );
+        void saveProjectRevision(state.project, state.filePath).catch(onError);
       }
     }, INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [filePath, markSaved]);
+  }, [filePath]);
 }

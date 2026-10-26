@@ -14,7 +14,8 @@
  * that map cleanly to the editor's word boundaries.
  */
 
-import { computeTimeline, type Project, type Word } from "./edl";
+import { type Project, type Word } from "./edl";
+import { projectTranscript } from "./transcript";
 
 const GAP_S = 0.7;
 const MAX_CUE_S = 5;
@@ -33,6 +34,7 @@ export interface CaptionCue {
 
 interface OutputWord {
   word: Word;
+  separatorBefore: string;
   start: number; // output-time
   end: number;
 }
@@ -43,24 +45,27 @@ interface OutputWord {
  * texts — captions need to match what's spoken, not what's unique.
  */
 export function flattenWordsInOutputTime(project: Project): OutputWord[] {
-  const out: OutputWord[] = [];
-  for (const entry of computeTimeline(project)) {
-    const segment = project.segments.find((s) => s.id === entry.segmentId);
-    if (!segment) continue;
-    for (const word of segment.words) {
-      // Clamp word time to the surviving segment range (we trim words that the
-      // user kept but whose timing falls outside the segment's source bounds).
-      const clampedStart = Math.max(word.start, entry.sourceIn);
-      const clampedEnd = Math.min(word.end, entry.sourceOut);
-      if (clampedEnd <= clampedStart) continue;
-      out.push({
-        word,
-        start: entry.outputStart + (clampedStart - entry.sourceIn),
-        end: entry.outputStart + (clampedEnd - entry.sourceIn),
+  return projectTranscript(project).flatMap((block) => {
+    let previousEnd = 0;
+    return block.runs
+      .filter((run) => run.text.trim())
+      .map((run) => {
+        const separatorBefore = previousEnd ? block.text.slice(previousEnd, run.from) : " ";
+        previousEnd = run.to;
+        return {
+          word: {
+            id: `${block.occurrenceId}:${run.id}`,
+            text: run.text,
+            start: run.sourceStart,
+            end: run.sourceEnd,
+            confidence: 1,
+          },
+          separatorBefore,
+          start: run.outputStart,
+          end: run.outputEnd,
+        };
       });
-    }
-  }
-  return out;
+  });
 }
 
 /** Group an output-time word list into reading-paced caption cues. */
@@ -94,8 +99,8 @@ export function buildCues(project: Project): CaptionCue[] {
 
 function makeCue(index: number, words: OutputWord[]): CaptionCue {
   const text = words
-    .map((w) => w.word.text)
-    .join(" ")
+    .map((w, i) => (i ? w.separatorBefore : "") + w.word.text)
+    .join("")
     .replace(/\s+([.,!?;:])/g, "$1") // tighten punctuation
     .trim();
   return {
@@ -154,10 +159,7 @@ export function buildVtt(project: Project): string {
   return (
     header +
     cues
-      .map(
-        (c) =>
-          `${formatVttTimestamp(c.start)} --> ${formatVttTimestamp(c.end)}\n${c.text}\n`,
-      )
+      .map((c) => `${formatVttTimestamp(c.start)} --> ${formatVttTimestamp(c.end)}\n${c.text}\n`)
       .join("\n")
   );
 }

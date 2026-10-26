@@ -926,3 +926,17 @@
   border-left: 1px solid hsl(var(--primary));
   pointer-events: none;
 }
+
+/* Editable transcript: timestamp widgets are outside the text/audio mapping. */
+.transcript-editor p { position: relative; }
+.transcript-time {
+  position: absolute;
+  right: calc(100% + 1.2rem);
+  top: 0;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.transcript-editor .word { cursor: text; }

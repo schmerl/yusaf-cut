@@ -26,7 +26,6 @@ import {
   importMedia,
   listModels,
   onModelDownloadProgress,
-  saveProject,
   startNativeRecording,
   stopNativeRecording,
   transcribe,
@@ -73,6 +72,8 @@ import {
   readTranscriptCache,
   writeTranscriptCache,
 } from "@/lib/transcriptCache";
+import { saveProjectRevision } from "@/lib/projectSaves";
+import { projectSession } from "@/stores/projectStore";
 import { isProjectPath, openSavedProject } from "@/lib/openProject";
 
 const MODELS: { name: WhisperModel; label: string; sizeMb: number }[] = [
@@ -160,7 +161,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const project = useProjectStore((s) => s.project);
   const dirty = useProjectStore((s) => s.dirty);
   const filePath = useProjectStore((s) => s.filePath);
-  const markSaved = useProjectStore((s) => s.markSaved);
+
 
   const transcribeProgress = useUIStore((s) => s.transcribeProgress);
   const exportingProgress = useUIStore((s) => s.exportingProgress);
@@ -569,6 +570,11 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   async function startTranscribe() {
     setModelDialogOpen(false);
     const force = forceRetranscribeRef.current;
+    if (force && project.segments.some((s) => s.transcript)) {
+      pushToast({ title: "Re-transcription of corrected projects is not enabled yet",
+        description: "Keep this project. The snapshot-protected workflow arrives in Phase 6.", variant: "destructive" });
+      return;
+    }
     forceRetranscribeRef.current = false; // reset immediately
 
     const mediaIds = Array.from(new Set(project.segments.map((segment) => segment.mediaId)));
@@ -667,6 +673,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   }
 
   const handleSave = useCallback(async () => {
+    const session = projectSession();
     let path = filePath;
     if (!path) {
       const next = await saveDialog({
@@ -677,8 +684,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       path = next;
     }
     try {
-      await saveProject(project, path);
-      markSaved(path);
+      await saveProjectRevision(project, path, session);
       pushToast({ title: "Saved" });
     } catch (err) {
       pushToast({
@@ -687,7 +693,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         variant: "destructive",
       });
     }
-  }, [filePath, project, markSaved, pushToast]);
+  }, [filePath, project, pushToast]);
 
   const runExport = useCallback(async () => {
     const outPath = await saveDialog({

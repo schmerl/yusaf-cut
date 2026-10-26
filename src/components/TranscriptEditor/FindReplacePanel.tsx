@@ -129,7 +129,17 @@ export function FindReplacePanel({ onClose }: FindReplacePanelProps) {
 
   function handleReplaceAll() {
     if (!find) return;
-    const n = replaceText(find, replace, { caseSensitive, wholeWord });
+    let n: number;
+    try {
+      n = replaceText(find, replace, { caseSensitive, wholeWord });
+    } catch (error) {
+      pushToast({
+        title: "Cannot replace text",
+        description: String(error),
+        variant: "destructive",
+      });
+      return;
+    }
     if (n === 0) {
       pushToast({ title: "No matches found" });
     } else {
@@ -139,7 +149,13 @@ export function FindReplacePanel({ onClose }: FindReplacePanelProps) {
 
   function handleRemoveFind() {
     if (!find) return;
-    const n = deleteWordsByText(new Set([find.toLowerCase().trim()]));
+    let n: number;
+    try {
+      n = deleteWordsByText(new Set([find.toLowerCase().trim()]));
+    } catch (error) {
+      pushToast({ title: "Cannot cut speech", description: String(error), variant: "destructive" });
+      return;
+    }
     if (n === 0) {
       pushToast({ title: "No matches found" });
     } else {
@@ -148,7 +164,13 @@ export function FindReplacePanel({ onClose }: FindReplacePanelProps) {
   }
 
   function handleRemoveFillers() {
-    const n = deleteWordsByText(selectedFillers);
+    let n: number;
+    try {
+      n = deleteWordsByText(selectedFillers);
+    } catch (error) {
+      pushToast({ title: "Cannot cut speech", description: String(error), variant: "destructive" });
+      return;
+    }
     if (n === 0) {
       pushToast({ title: "No filler words found" });
     } else {
@@ -256,7 +278,7 @@ export function FindReplacePanel({ onClose }: FindReplacePanelProps) {
           disabled={!find}
           title="Delete every occurrence of the search term"
         >
-          Delete matches
+          Cut matching speech
         </Button>
 
         <div className="relative ml-auto">
@@ -267,7 +289,7 @@ export function FindReplacePanel({ onClose }: FindReplacePanelProps) {
             onClick={() => setShowFillerMenu((v) => !v)}
           >
             <Eraser className="h-3.5 w-3.5" />
-            Remove filler words
+            Cut filler speech
             <ChevronDown
               className={cn("h-3.5 w-3.5 transition-transform", showFillerMenu && "rotate-180")}
             />

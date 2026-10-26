@@ -44,17 +44,38 @@ This document explains how the code maps to the spec at the repo root.
 
 ## The EDL contract
 
-### Transcript correction foundations (Phase 1)
+### Transcript correction model and editor (Phases 1–4)
 
 Segments optionally carry versioned `transcript` metadata: occurrence ID,
 original word anchors, stable blocks, and editable text runs. Audio remains
 defined by `segment.words` and the EDL ranges. `src/lib/transcript.ts` provides
 explicit, pure legacy normalization and an output-order projection with display
-offsets and source/output timing. The existing UI does not consume that projection
-yet. Native save/load and snapshot boundaries validate and preserve overlays.
+offsets and source/output timing. The editor and captions consume that projection.
+Native save/load and snapshot boundaries validate and preserve overlays.
 Project loading never seeds the raw-recognition cache with saved project text.
 
 See [the model design and Phase 2 integration obligations](plans/03-transcript-model-design.md).
+
+`src/lib/transcriptEdits.ts` supplies immutable text replacement, atomic batches,
+paragraph split/join, original restoration primitives, and occurrence-scoped
+speech cuts. EDL cut/split operations reconcile retained overlays and reject
+partial corrected-group cuts. Normalized overlays are materialized at the first
+text operation, not merely by opening an old project.
+
+The TipTap document uses stable paragraph IDs and plain text, with projected
+decorations for timing groups. Local transactions are validated before entering
+the project store. IME composition stays in a draft editor document until it
+can be validated; autosave and export see the last valid project. Echoed local
+commits update decorations without replacing the document/caret. External
+undo/load/cuts rebuild from the model and restore a logical paragraph/offset.
+Playback decorations cache their projected block lookup for the current project.
+
+Zundo is the sole committed history: successive typing within 800ms can share
+one checkpoint, while explicit cuts/batches/restores are atomic. Delayed history
+capture was removed. `src/lib/projectSaves.ts` serializes native writes and
+acknowledges only the saved project reference/session, so a late save cannot mark
+newer edits or a different opened project clean. Undo/redo recomputes dirty state
+against the acknowledged saved revision.
 
 Everything important happens through `Project`:
 

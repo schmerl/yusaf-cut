@@ -1,8 +1,8 @@
 # Feature 3: Manual transcript corrections
 
-Status: Requirements defined from the user's interview answers. Phase 1 model,
-projection, validation, and persistence foundations are implemented. Editing
-operations and UI remain pending in the later phases.
+Status: Phases 1–4 implemented, with automated editor and model checks passing.
+The native manual checkpoint is pending. Contextual search/original-text UI
+(Phase 5) and the protected re-transcription workflow (Phase 6) remain pending.
 
 Agent handoff: [phased implementation plan](../plans/03-transcript-corrections.md).
 

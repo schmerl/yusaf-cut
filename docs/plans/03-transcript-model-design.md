@@ -1,8 +1,8 @@
 # Phase 1 design: occurrence-scoped transcript metadata
 
-Implemented by the Phase 1 correction-model branch. This is a data/persistence
-foundation, not an editable transcript release. The public editor, caption
-builder, and cut operations continue their existing behavior until later phases.
+Initially implemented by the Phase 1 correction-model branch. Phases 2–4 now
+connect the editor, captions, and cut operations; their transaction layer is
+`src/lib/transcriptEdits.ts`. This document retains the original model design.
 
 ## Storage contract
 
@@ -88,7 +88,7 @@ can load a version-1 project but may silently drop overlay fields when saving;
 this is **not backward write compatibility**. Keep original files/snapshots and
 use the updated app when working with corrected projects.
 
-## Later cuts and restoration: Phase 2 obligations
+## Cuts and restoration: Phase 2 contracts
 
 Each segment overlay describes exactly its surviving word anchors. After a
 cut, Phase 2 must split/reconcile blocks and groups with the new surviving
@@ -99,8 +99,8 @@ block/run IDs should survive unaffected operations.
 For example, cutting the complete `r1` group removes w0/w1 from the surviving
 EDL and overlay together. A later Restore original operation may expose w4
 (“old”), but must not restore the cut w0/w1 or widen source ranges. Cutting
-half of r1 must be rejected. Phase 1 does not implement these operations; its
-validation rejects stale mappings rather than guessing or restoring speech.
+half of r1 must be rejected. Phase 2 implements these contracts in the pure
+edit/cut layer and EDL reconciliation. Original-text UI follows in Phase 5.
 
 ## Recognition-cache boundary
 

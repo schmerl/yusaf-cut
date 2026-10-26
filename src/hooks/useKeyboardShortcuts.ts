@@ -6,12 +6,12 @@
  *   Shift+Cmd+Z   redo
  *   Cmd+S         save  (caller wires the toolbar button)
  *   Cmd+E         export
- *   Delete        cut selected transcript words
+ *   Cmd+Shift+X   explicit Cut speech; Delete/Backspace never cut audio
  */
 
 import { useEffect } from "react";
 import { usePlayerStore } from "@/stores/playerStore";
-import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
+import { useProjectStore, useTemporalProjectStore, endTypingGroup } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import { wordIdToOutputTime, wordIdsInOutputRange } from "@/lib/edl";
 
@@ -32,9 +32,37 @@ export function useKeyboardShortcuts() {
       const target = e.target as HTMLElement | null;
       const inTextField =
         !!target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable ||
+          !!target.closest('[contenteditable="true"]'));
 
       const mod = isMac() ? e.metaKey : e.ctrlKey;
+
+      if (mod && e.shiftKey && e.key.toLowerCase() === "x") {
+        if (inTextField) return; // editor handles its precise text selection
+        e.preventDefault();
+        const player = usePlayerStore.getState();
+        try {
+          if (player.timelineMarkIn !== null && player.timelineMarkOut !== null) {
+            useProjectStore
+              .getState()
+              .deleteOutputRange(player.timelineMarkIn, player.timelineMarkOut);
+            player.clearTimelineRange();
+          } else if (player.selectedWordIds.size) {
+            useProjectStore.getState().deleteWords(player.selectedWordIds);
+          }
+          player.setSelectedWordIds([]);
+        } catch (error) {
+          useUIStore.getState().pushToast({
+            title: "Cannot cut speech",
+            description: String(error),
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      if (inTextField && !(mod && ["s", "e"].includes(e.key.toLowerCase()))) return;
 
       // While a heavy edit is processing, swallow transport + delete shortcuts so
       // playback can't start and edits can't stack against a half-built timeline.
@@ -157,62 +185,11 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      if (mod && (e.key === "Backspace" || e.key === "Delete")) {
-        const player = usePlayerStore.getState();
-        const projectStore = useProjectStore.getState();
-        const ui = useUIStore.getState();
-        const hasRange = player.timelineMarkIn !== null && player.timelineMarkOut !== null;
-        const selectedIds = [...player.selectedWordIds];
-        if (!hasRange && selectedIds.length === 0) return;
-        e.preventDefault();
-        if (hasRange) {
-          const markIn = player.timelineMarkIn!;
-          const markOut = player.timelineMarkOut!;
-          const seekTo = Math.min(markIn, markOut);
-          void ui
-            .withProcessingEdit("Updating timeline…", () => {
-              projectStore.deleteOutputRange(markIn, markOut);
-            })
-            .then(() => {
-              player.clearTimelineRange();
-              player.setSelectedWordIds([]);
-              player.setCurrentTime(seekTo);
-              window.dispatchEvent(
-                new CustomEvent("yusafcut:seek-output", { detail: { time: seekTo, play: false } }),
-              );
-            });
-          return;
-        }
-        void ui
-          .withProcessingEdit("Updating timeline…", () => {
-            projectStore.deleteWords(selectedIds);
-          })
-          .then(() => player.setSelectedWordIds([]));
-        return;
-      }
-
-      if (!mod && (e.key === "Backspace" || e.key === "Delete") && !inTextField) {
-        const player = usePlayerStore.getState();
-        const projectStore = useProjectStore.getState();
-        const ui = useUIStore.getState();
-        const selectedIds = [...player.selectedWordIds];
-        if (selectedIds.length === 0) return;
-        e.preventDefault();
-        void ui
-          .withProcessingEdit("Updating timeline…", () => {
-            projectStore.deleteWords(selectedIds);
-          })
-          .then(() => {
-            player.setSelectedWordIds([]);
-            window.getSelection()?.removeAllRanges();
-          });
-        return;
-      }
-
       if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
         const temporal = useProjectStore.temporal.getState();
         if (temporal.pastStates.length === 0) return;
         e.preventDefault();
+        endTypingGroup();
         temporal.undo();
         return;
       }
@@ -220,6 +197,7 @@ export function useKeyboardShortcuts() {
         const temporal = useProjectStore.temporal.getState();
         if (temporal.futureStates.length === 0) return;
         e.preventDefault();
+        endTypingGroup();
         temporal.redo();
         return;
       }

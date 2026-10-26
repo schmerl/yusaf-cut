@@ -21,12 +21,21 @@ import {
   removeSilences,
   renameChapter,
   updateAudioTrack,
-  wordIdsInOutputRange,
   type AudioTrack,
   type Project,
   type SourceMedia,
   type Word,
 } from "@/lib/edl";
+import {
+  editBlockText,
+  cutOutputSpeech,
+  cutTranscriptRanges,
+  replaceTranscriptBatch,
+  restoreTranscriptBlock,
+  type TextEdit,
+  type TextRange,
+} from "@/lib/transcriptEdits";
+import { projectTranscript, validateProjectTranscripts } from "@/lib/transcript";
 import type { PauseSegment } from "@/lib/ipc";
 
 interface ProjectState {
@@ -35,6 +44,12 @@ interface ProjectState {
   dirty: boolean;
   /** Absolute path on disk; null for an unsaved project. */
   filePath: string | null;
+
+  correctBlock: (segmentId: string, blockId: string, text: string, expected: Project) => void;
+  applyTextEdits: (edits: TextEdit[], expected: Project) => void;
+  cutSpeech: (ranges: TextRange[], expected: Project) => void;
+  restoreOriginal: (segmentId: string, blockId: string) => void;
+  commitTranscript: (next: Project, expected: Project, typingKey?: string) => void;
 
   // Mutations
   setProject: (p: Project) => void;
@@ -85,14 +100,11 @@ interface ProjectState {
   /** Audio-track ops (music beds / sfx mixed under the main EDL). */
   addAudioTrack: (track: Omit<AudioTrack, "id">) => void;
   removeAudioTrack: (id: string) => void;
-  updateAudioTrack: (
-    id: string,
-    patch: Partial<Omit<AudioTrack, "id" | "mediaId">>,
-  ) => void;
+  updateAudioTrack: (id: string, patch: Partial<Omit<AudioTrack, "id" | "mediaId">>) => void;
   /** Add a SourceMedia entry without creating a transcript segment for it.
    *  Used when importing a music file purely as an audio-track input. */
   addMediaOnly: (media: SourceMedia) => void;
-  markSaved: (path: string) => void;
+  markSaved: (path: string, expected?: Project, session?: number) => void;
   closeProject: () => void;
 
   // ---------------------------------------------------------------------------
@@ -160,6 +172,14 @@ function normaliseToken(s: string): string {
     .toLowerCase();
 }
 
+let currentSession = 0;
+let savedProject: Project | null = null;
+let typingGroup: { key: string; project: Project; time: number } | undefined;
+export const projectSession = () => currentSession;
+export function endTypingGroup() {
+  typingGroup = undefined;
+}
+
 export const useProjectStore = create<ProjectState>()(
   temporal(
     (set, _get) => ({
@@ -168,7 +188,40 @@ export const useProjectStore = create<ProjectState>()(
       filePath: null,
       pauseTokens: [],
 
-      setProject: (p) => set({ project: p, dirty: true }),
+      setProject: (p) => {
+        validateProjectTranscripts(p);
+        set({ project: p, dirty: true });
+      },
+
+      commitTranscript: (next, expected, typingKey) => {
+        if (_get().project !== expected)
+          throw new Error("The transcript changed. Select the passage again.");
+        if (next === expected) return;
+        validateProjectTranscripts(next);
+        const temporal = useProjectStore.temporal.getState();
+        const join =
+          typingKey &&
+          typingGroup?.key === typingKey &&
+          typingGroup.project === expected &&
+          Date.now() - typingGroup.time < 800 &&
+          temporal.futureStates.length === 0;
+        if (join) temporal.pause();
+        set({ project: next, dirty: true });
+        if (join) temporal.resume();
+        typingGroup = typingKey ? { key: typingKey, project: next, time: Date.now() } : undefined;
+      },
+      correctBlock: (segmentId, blockId, text, expected) => {
+        const next = editBlockText(expected, segmentId, blockId, text);
+        _get().commitTranscript(next, expected, `${segmentId}:${blockId}`);
+      },
+      applyTextEdits: (edits, expected) =>
+        _get().commitTranscript(replaceTranscriptBatch(_get().project, expected, edits), expected),
+      cutSpeech: (ranges, expected) =>
+        _get().commitTranscript(cutTranscriptRanges(expected, ranges), expected),
+      restoreOriginal: (segmentId, blockId) => {
+        const p = _get().project;
+        _get().commitTranscript(restoreTranscriptBlock(p, segmentId, blockId), p);
+      },
 
       rename: (name) =>
         set((s) => ({
@@ -190,13 +243,10 @@ export const useProjectStore = create<ProjectState>()(
 
       deleteOutputRange: (markIn, markOut) => {
         const project = _get().project;
-        const ids = wordIdsInOutputRange(project, markIn, markOut);
-        if (ids.length === 0) return 0;
-        set({
-          project: deleteWords(project, new Set(ids)),
-          dirty: true,
-        });
-        return ids.length;
+        const next = cutOutputSpeech(project, markIn, markOut);
+        if (next === project) return 0;
+        _get().commitTranscript(next, project);
+        return 1;
       },
 
       deleteBySourceRange: (srcStart, srcEnd) => {
@@ -227,67 +277,43 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       deleteWordsByText: (tokens) => {
-        let removed = 0;
-        const ids: string[] = [];
-        const project = _get().project;
-        for (const seg of project.segments) {
-          for (const w of seg.words) {
-            if (tokens.has(normaliseToken(w.text))) {
-              ids.push(w.id);
-              removed++;
-            }
+        const p = _get().project;
+        const ranges: TextRange[] = [];
+        for (const block of projectTranscript(p))
+          for (const run of block.runs) {
+            if (tokens.has(normaliseToken(run.text)) && run.text.trim())
+              ranges.push({
+                segmentId: block.segmentId,
+                blockId: block.id,
+                from: run.from,
+                to: run.to,
+              });
           }
-        }
-        if (ids.length === 0) return 0;
-        set({
-          project: deleteWords(project, new Set(ids)),
-          dirty: true,
-        });
-        return removed;
+        if (ranges.length) _get().cutSpeech(ranges, p);
+        return ranges.length;
       },
 
       replaceText: (find, replace, opts) => {
-        const caseSensitive = opts?.caseSensitive ?? false;
-        const wholeWord = opts?.wholeWord ?? true;
-        const needle = caseSensitive ? find : find.toLowerCase();
-        if (needle.length === 0) return 0;
-        let replaced = 0;
-        const project = _get().project;
-        const nextSegments = project.segments.map((seg) => ({
-          ...seg,
-          words: seg.words.map((w) => {
-            const haystack = caseSensitive ? w.text : w.text.toLowerCase();
-            if (wholeWord) {
-              // Whole-word match — compare token without surrounding punctuation
-              const norm = caseSensitive
-                ? w.text.trim().replace(/^[\s.,!?;:"'()[\]{}—–-]+|[\s.,!?;:"'()[\]{}—–-]+$/g, "")
-                : normaliseToken(w.text);
-              if (norm === needle) {
-                replaced++;
-                // Preserve trailing punctuation so the transcript reads naturally
-                const trailing = w.text.match(/[\s.,!?;:"'()[\]{}—–-]+$/)?.[0] ?? "";
-                return { ...w, text: replace + trailing };
-              }
-              return w;
-            }
-            // Substring search
-            if (!haystack.includes(needle)) return w;
-            const re = caseSensitive
-              ? new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
-              : new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-            const newText = w.text.replace(re, () => {
-              replaced++;
-              return replace;
-            });
-            return { ...w, text: newText };
-          }),
-        }));
-        if (replaced === 0) return 0;
-        set({
-          project: { ...project, segments: nextSegments, updatedAt: new Date().toISOString() },
-          dirty: true,
-        });
-        return replaced;
+        if (!find) return 0;
+        const p = _get().project;
+        const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(escaped, opts?.caseSensitive ? "gu" : "giu");
+        const edits: TextEdit[] = [];
+        for (const block of projectTranscript(p)) {
+          for (const match of block.text.matchAll(re)) {
+            const from = match.index!,
+              to = from + match[0].length;
+            if (
+              opts?.wholeWord !== false &&
+              (/\p{L}|\p{N}|_/u.test(block.text[from - 1] ?? "") ||
+                /\p{L}|\p{N}|_/u.test(block.text[to] ?? ""))
+            )
+              continue;
+            edits.push({ segmentId: block.segmentId, blockId: block.id, from, to, text: replace });
+          }
+        }
+        _get().applyTextEdits(edits, p);
+        return edits.length;
       },
 
       removeSilences: (gapMs) => {
@@ -300,8 +326,7 @@ export const useProjectStore = create<ProjectState>()(
 
       addChapter: (outputTime, title) =>
         set((s) => ({ project: addChapter(s.project, outputTime, title), dirty: true })),
-      removeChapter: (id) =>
-        set((s) => ({ project: removeChapter(s.project, id), dirty: true })),
+      removeChapter: (id) => set((s) => ({ project: removeChapter(s.project, id), dirty: true })),
       renameChapter: (id, title) =>
         set((s) => ({ project: renameChapter(s.project, id, title), dirty: true })),
       setChapters: (chapters) =>
@@ -334,15 +359,13 @@ export const useProjectStore = create<ProjectState>()(
           dirty: true,
         })),
 
-      markSaved: (path) => set({ dirty: false, filePath: path }),
+      markSaved: (path, expected = _get().project, session = currentSession) => {
+        if (session !== currentSession) return;
+        savedProject = expected;
+        set({ dirty: _get().project !== expected, filePath: path });
+      },
 
-      closeProject: () =>
-        set({
-          project: newProject("Untitled"),
-          dirty: false,
-          filePath: null,
-          pauseTokens: [],
-        }),
+      closeProject: () => replaceProjectBaseline(newProject("Untitled")),
 
       // -----------------------------------------------------------------------
       // Pause token actions
@@ -366,7 +389,7 @@ export const useProjectStore = create<ProjectState>()(
         const wordIds = computeSilenceWordIds(project, pause.start, pause.end);
         set({
           project: wordIds.length > 0 ? deleteWords(project, new Set(wordIds)) : project,
-          dirty: wordIds.length > 0,
+          dirty: _get().dirty || wordIds.length > 0,
           pauseTokens: pauseTokens.filter((p) => p.id !== id),
         });
       },
@@ -387,7 +410,7 @@ export const useProjectStore = create<ProjectState>()(
         const targetIds = new Set(targets.map((p) => p.id));
         set({
           project,
-          dirty: anyDeleted,
+          dirty: _get().dirty || anyDeleted,
           pauseTokens: pauseTokens.filter((p) => !targetIds.has(p.id)),
         });
         return targets.length;
@@ -413,14 +436,7 @@ export const useProjectStore = create<ProjectState>()(
       limit: 50,
       // Only snapshot the `project` field — don't churn the stack on dirty/path changes.
       partialize: (state) => ({ project: state.project }),
-      // Throttle bursts (e.g. typed deletes) so we don't fill the stack.
-      handleSet: (handleSet) => {
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        return (state) => {
-          if (timeout) clearTimeout(timeout);
-          timeout = setTimeout(() => handleSet(state), 100);
-        };
-      },
+      equality: (a, b) => a.project === b.project,
     },
   ),
 );
@@ -434,6 +450,10 @@ export function replaceProjectBaseline(
   opts: { filePath?: string | null; dirty?: boolean } = {},
 ) {
   const temporalStore = useProjectStore.temporal.getState();
+  validateProjectTranscripts(project);
+  currentSession++;
+  typingGroup = undefined;
+  savedProject = opts.dirty ? null : project;
   temporalStore.pause();
   useProjectStore.setState({
     project,
@@ -441,10 +461,7 @@ export function replaceProjectBaseline(
     filePath: opts.filePath ?? null,
   });
   temporalStore.clear();
-  setTimeout(() => {
-    temporalStore.clear();
-    temporalStore.resume();
-  }, 150);
+  temporalStore.resume();
 }
 
 /** Helper for components to access undo/redo. */
@@ -454,3 +471,10 @@ export function useTemporalProjectStore<T>(
   // The temporal store is exposed as a method on the main store.
   return useStore(useProjectStore.temporal, selector);
 }
+
+// Undo/redo applies partial project snapshots. Recompute dirty without adding history.
+useProjectStore.subscribe((state, previous) => {
+  if (state.project !== previous.project) {
+    useProjectStore.setState({ dirty: state.project !== savedProject });
+  }
+});

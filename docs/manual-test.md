@@ -20,20 +20,20 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 
 ## Edit
 
-- [ ] Select two adjacent words → press Delete → words show as struck-through
-- [ ] Hit Play → audio skips the deleted range cleanly (no audible artefact)
-- [ ] Cmd+Z restores the deletion
-- [ ] Repeat with a longer range crossing a paragraph boundary
-- [ ] Select a leading word → delete → segment trims from the start
-- [ ] Select a trailing word → delete → segment trims from the end
+- [ ] Follow the [Phases 2–4 native checkpoint](manual-transcript-corrections.md)
+- [ ] Typing and Delete/Backspace/Cmd-X change text only; duration stays unchanged
+- [ ] Click edits and Cmd-click seeks while preserving playback state
+- [ ] Explicit Cut speech (Cmd-Shift-X) removes selected speech and is undoable
+- [ ] A partial corrected timing-group selection cannot cut audio
+- [ ] Nonempty paragraphs, plain paste, caret stability, and IME work natively
 
 ## Save / load
 
 Phase 1 correction metadata is exercised by the shared synthetic fixture and
 native round-trip tests (`tests/transcript.test.ts` and Rust `transcript::tests`).
-Inline correction, restoration, and caption UI checks become applicable in the
-later implementation phases; a legacy project should still open without being
-marked dirty merely by loading it.
+Inline editing and captions are now integrated. Original-text restoration UI
+remains Phase 5. A legacy project should still open without becoming dirty
+merely by loading it.
 
 - [ ] Cmd+S → choose location → `.scribe` bundle appears on disk
 - [ ] Quit and relaunch

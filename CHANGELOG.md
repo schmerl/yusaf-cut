@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-10-26
+
+### Added
+- **Editable transcript (Phases 2–4)** — type directly to correct words,
+  capitalization, punctuation, and phrases without changing the audio timeline.
+  Hidden words retain their audio anchors; spoken paragraphs cannot become empty.
+- **Explicit Cut speech** button and Cmd-Shift-X shortcut. Corrected timing groups
+  must be selected in full; ordinary text deletion and Cmd-X never cut audio.
+- Output-order phrase highlighting, paragraph timestamps, corrected SRT/VTT
+  captions, grouped typing history, atomic correction/cut undo, and stale-save
+  protection with serialized writes.
+
+### Changed
+- Click places the caret; Cmd-click seeks without changing playing/paused state.
+  Pause removal is an explicit control rather than a transcript-click action.
+- Existing cut/silence operations retain correction metadata or report when a
+  proposed cut would split a corrected group.
+- Re-transcribing a project with transcript overlays is temporarily blocked
+  until Phase 6 supplies the snapshot-protected replacement workflow. Original-
+  text inspection/restoration UI and contextual search UI remain for Phase 5.
+
 ## [4.4.0] - 2026-10-26
 
 ### Added

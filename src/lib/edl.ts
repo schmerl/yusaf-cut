@@ -12,6 +12,7 @@
 //      until export.
 
 import { v4 as uuidv4 } from "uuid";
+import { reconcileTranscript } from "./transcriptEdits";
 import type { TranscriptMetadata } from "./transcript";
 
 export type MediaId = string;
@@ -305,7 +306,7 @@ export function splitSegmentAtWord(segment: Segment, wordIndex: number): Segment
     sourceIn: Math.max(segment.sourceIn, boundary),
     sourceOut: segment.sourceOut,
   };
-  return [left, right];
+  return [reconcileTranscript(segment, left), reconcileTranscript(segment, right)];
 }
 
 /**
@@ -362,13 +363,13 @@ export function deleteWords(project: Project, wordIds: ReadonlySet<string>): Pro
       const sourceIn = isFirstRun ? seg.sourceIn : Math.max(seg.sourceIn, firstWord.start - paddingSec);
       const sourceOut = isLastRun ? seg.sourceOut : Math.min(seg.sourceOut, lastWord.end + paddingSec);
 
-      nextSegments.push({
+      nextSegments.push(reconcileTranscript(seg, {
         id: uuidv4(),
         mediaId: seg.mediaId,
         words: run.words,
         sourceIn,
         sourceOut,
-      });
+      }));
     }
   }
 
@@ -453,13 +454,13 @@ export function removeSilences(
         ? seg.sourceOut
         : Math.min(seg.sourceOut, lastWord.end + padding);
 
-      nextSegments.push({
+      nextSegments.push(reconcileTranscript(seg, {
         id: uuidv4(),
         mediaId: seg.mediaId,
         words: runWords,
         sourceIn,
         sourceOut,
-      });
+      }));
       runStart = runEnd;
     }
   }

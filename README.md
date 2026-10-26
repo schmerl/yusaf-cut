@@ -171,10 +171,19 @@ reporting process.
 
 ## Project Files
 
-Transcript correction Phase 1 adds optional original-text and timing-group
-metadata to project save/load and snapshots. Inline correction controls are
-still pending. Older app versions may drop this new metadata when saving;
-use the updated app for projects that contain correction metadata.
+The transcript is editable by default: typing and Delete/Backspace change text,
+while **Cut speech** (Cmd-Shift-X) removes selected audio/video. Click edits;
+Cmd-click seeks. Phrase corrections retain their original audio span and export
+as corrected SRT/VTT text. Select the whole corrected timing group to cut it.
+
+Original-text and timing-group metadata round-trip through project save/load
+and snapshots. Older app versions may drop this metadata when saving; use the
+updated app for corrected projects. The original-text restoration UI and full
+contextual search are still pending in Phase 5; re-transcription of corrected
+projects is blocked until the Phase 6 snapshot workflow is ready.
+
+See the [Phases 2–4 manual checkpoint](docs/manual-transcript-corrections.md)
+for a disposable test project and suggested checks.
 
 YusafCut currently saves projects as `.scribe` bundles. The extension is kept
 for compatibility with existing project files while the product name changes to

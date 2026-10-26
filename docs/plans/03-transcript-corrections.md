@@ -1,6 +1,31 @@
 # Implementation plan: feature 3 — manual transcript corrections
 
-Status: Phase 1 foundations implemented; Phases 2–7 remain pending.
+Status: Phases 1–4 implemented; native manual editing checks remain pending.
+Phases 5–7 remain pending.
+
+## Phases 2–4 checkpoint
+
+- Branch: `feature/transcript-editing`; app version 4.5.0.
+- Pure replacement/batch/restore/split/join operations and occurrence-scoped
+  cuts preserve anchors. EDL cuts retain overlays and reject partial group cuts.
+- Immediate, grouped project history replaces delayed snapshots. Serialized
+  save requests protect newer edits, undo dirty state, and project switches.
+- Captions and editor decorations use corrected output-order text/timing.
+- Editable-by-default TipTap panel, plain-text paste, Cmd-click seek, Cmd-Shift-X
+  Cut speech, paragraph validation, logical caret restoration, and IME drafts
+  are connected. No separate editor undo stack is enabled.
+- Automated verification: 122 frontend tests, typecheck/lint, native library
+  tests, and a native release build. Native tests cover metadata save/snapshots;
+  editor tests use actual ProseMirror transactions in jsdom.
+- [Manual checkpoint and reproducible synthetic fixture](../manual-transcript-corrections.md).
+  Do not treat native WKWebView IME/caret or real-lecture audio synchronization
+  as verified solely by automated tests.
+- Re-transcription is blocked for projects with overlays until Phase 6; this
+  prevents losing corrections before its snapshot workflow exists.
+- Phase 5 remains responsible for contextual search/current-match UI and
+  original-text inspection/restoration controls. Phase 2 provides their pure APIs;
+  the old search panel only receives compatibility/error-label adjustments here.
+- No source recordings or installed/running user app were replaced.
 
 ## Phase 1 checkpoint
 
@@ -16,9 +41,8 @@ Status: Phase 1 foundations implemented; Phases 2–7 remain pending.
   cut/recognition operations. Legacy loads validate but do not materialize
   overlays or change dirty state. Phase 3 will connect projection consumers;
   this phase does not expose a partially functional correction UI.
-- Next: Phase 2 pure edit/cut operations, explicit history boundaries, and save
-  revision protection. No editing transaction, restoration command, or UI is
-  claimed complete by this checkpoint.
+- This historical checkpoint describes Phase 1 alone; see the newer checkpoint
+  above for Phases 2–4.
 
 Source of truth: [accepted requirements](../requirements/03-transcript-corrections.md).
 If this plan conflicts with those requirements, follow the requirements and
