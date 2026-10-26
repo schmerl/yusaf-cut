@@ -414,7 +414,12 @@ The LLM never edits directly. It returns a list of `wordId` ranges to delete, wh
 
 ### 6.4 Caption / subtitle export
 
-Generate SRT and VTT from the post-edit EDL. The hard part is re-mapping word timestamps from source-time to output-time. We already have `computeTimeline()` — just need to chunk into subtitle-friendly lines.
+The **Captions** button beside **Export .mp4** exports SRT or VTT separately
+through a native save dialog. Captions are generated from the post-edit EDL,
+mapping source timestamps to output time with `computeTimeline()` and grouping
+words into readable cues. The main-window capability grants
+`fs:allow-write-text-file`; the dialog grants access to the selected destination.
+See [the caption export requirements](requirements/01-caption-export.md).
 
 ### 6.5 Multi-clip projects
 

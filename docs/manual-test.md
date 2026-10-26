@@ -43,6 +43,19 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 - [ ] No audio glitches at cut boundaries
 - [ ] Cancel works: hitting Cancel mid-export terminates ffmpeg promptly
 
+## Caption export
+
+- [ ] Use a freshly rebuilt app (4.3.1 or newer), open a transcribed project,
+      and click **Captions** beside **Export .mp4**
+- [ ] Save an `.srt` file to a location chosen in the native save dialog;
+      confirm success and numbered cues with comma-separated milliseconds
+- [ ] Save a `.vtt` file; confirm success, a `WEBVTT` header, and timestamps
+      with dot-separated milliseconds
+- [ ] Check that technical terms, punctuation, and non-ASCII text are preserved
+- [ ] Cancel the save dialog; confirm no file is created and no error appears
+- [ ] Attempt an unavailable destination; confirm a failure is reported
+- [ ] Confirm caption export leaves the transcript, timeline, and media unchanged
+
 ## Performance smoke check (M2 Pro)
 
 - [ ] 5-minute clip transcribes in < 60s with `large-v3-turbo`

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.1] - 2026-10-26
+
+### Fixed
+- **Caption export permission** — allow the text-file write command used by the
+  Captions button so SRT and VTT exports can be saved to the destination chosen
+  in the native save dialog. No additional filesystem directory scopes are granted.
+
 ## [4.3.0] - 2026-06-05
 
 ### Added

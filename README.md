@@ -46,6 +46,7 @@ iteration and some rough edges around packaging.
 | EDL-based edit operations + 50-step undo | Complete |
 | Project save/load as `.scribe` bundles | Complete |
 | Smart-cut MP4 export with FFmpeg + VideoToolbox | Complete |
+| SRT / VTT caption export | Complete |
 | Background job queue with cancellation | Complete |
 | Multi-clip editing and Add Clip support | Complete |
 | Multi-track audio with music ducking | Complete |
@@ -128,6 +129,16 @@ The built artifacts will be in `src-tauri/target/release/bundle/`.
 | `npm run ci` | Run the full local CI suite |
 
 ## How It Works
+
+### Export captions for YouTube
+
+After transcription, click **Captions** beside **Export .mp4** in the top
+toolbar. Choose a destination and an `.srt` or `.vtt` filename in the save
+dialog. Captions are saved separately from the video using the project's edited
+transcript and output timeline. Upload that file alongside the corresponding
+video in YouTube Studio.
+
+### Editing model
 
 The Edit Decision List (EDL) is the source of truth. It is a flat list of
 segments, each pointing into a source media file with `sourceIn`, `sourceOut`,
