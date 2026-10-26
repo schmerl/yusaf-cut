@@ -113,39 +113,87 @@ export function replaceTranscriptBatch(
   return sorted.reduce(replaceTranscriptText, project);
 }
 
-export function restoreTranscriptBlock(
+/** Selection restoration is explicit about expanding to complete timing groups.
+ * A whole paragraph includes hidden runs, so text-only deletions are recoverable.
+ */
+export function originalTranscriptPassage(project: Project, range: TextRange) {
+  const block =
+    projectTranscript(project).find(
+      (b) => b.segmentId === range.segmentId && b.id === range.blockId,
+    ) ?? fail("This passage changed. Select it again.");
+  if (
+    !Number.isInteger(range.from) ||
+    !Number.isInteger(range.to) ||
+    range.from < 0 ||
+    range.to <= range.from ||
+    range.to > block.text.length
+  )
+    fail("Select a passage or inspect its whole paragraph.");
+  const whole = range.from === 0 && range.to === block.text.length;
+  const runs = block.runs.filter((r) => whole || (r.to > range.from && r.from < range.to));
+  if (!runs.length) fail("Select a timed passage to restore.");
+  return {
+    wholeParagraph: whole,
+    runIds: runs.map((r) => r.id),
+    originalText: runs.map((r) => r.originalText).join(" "),
+    expanded: !whole && runs.some((r) => r.from < range.from || r.to > range.to),
+  };
+}
+
+export function restoreTranscriptRange(
   project: Project,
-  segmentId: string,
-  blockId: string,
+  expected: Project,
+  range: TextRange,
 ): Project {
+  if (project !== expected) fail("The transcript changed. Inspect the passage again.");
+  const passage = originalTranscriptPassage(project, range);
+  const selected = new Set(passage.runIds);
   const p = normalizeProjectTranscripts(project);
   return finish({
     ...p,
     segments: p.segments.map((s) => {
-      if (s.id !== segmentId) return s;
+      if (s.id !== range.segmentId) return s;
       const originals = new Map(s.transcript!.originals.map((w) => [w.id, w]));
       return {
         ...s,
         transcript: {
           ...s.transcript!,
           blocks: s.transcript!.blocks.map((b) =>
-            b.id !== blockId
+            b.id !== range.blockId
               ? b
               : {
                   ...b,
                   runs: b.runs.flatMap((r) =>
-                    r.anchorIds.map((id) => ({
-                      id: uuid(),
-                      text: originals.get(id)!.text,
-                      separatorBefore: " ",
-                      anchorIds: [id],
-                    })),
+                    !selected.has(r.id)
+                      ? [r]
+                      : r.anchorIds.map((id, i) => ({
+                          id: uuid(),
+                          text: originals.get(id)!.text,
+                          separatorBefore: i || passage.wholeParagraph ? " " : r.separatorBefore,
+                          anchorIds: [id],
+                        })),
                   ),
                 },
           ),
         },
       };
     }),
+  });
+}
+
+export function restoreTranscriptBlock(
+  project: Project,
+  segmentId: string,
+  blockId: string,
+): Project {
+  const block =
+    projectTranscript(project).find((b) => b.segmentId === segmentId && b.id === blockId) ??
+    fail("This passage changed. Select it again.");
+  return restoreTranscriptRange(project, project, {
+    segmentId,
+    blockId,
+    from: 0,
+    to: block.text.length,
   });
 }
 

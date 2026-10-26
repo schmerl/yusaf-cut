@@ -1,8 +1,44 @@
 # Implementation plan: feature 3 — manual transcript corrections
 
-Status: Phases 1–4 implemented. The user verified Phase 4 editing, save/reopen,
+Status: Phases 1–5 implemented. The user verified Phase 4 editing, save/reopen,
 captions, and snapshots in 4.5.0. Two timing checks identified a repeated-source
-playback bug; its 4.5.1 fix awaits native retest. Phases 5–7 remain pending.
+playback bug; the user confirmed all native retests of its 4.5.1 fix passed on
+2026-10-26. Phase 4 is complete. The user confirmed all Phase 5 native tests passed in 4.6.0. The 4.6.1
+partial-match highlight follow-up awaits native verification. Phases 6–7 remain pending.
+
+## Phase 5 checkpoint
+
+- Version 4.6.0: shared projected literal search now drives output-order matches,
+  counts, paragraph context, current/next/previous navigation and ProseMirror
+  highlights. Matching spans raw records and corrected groups within paragraphs.
+- Case-sensitive and Unicode whole-word options share the same matcher with the
+  store API. Letters, combining marks, numbers and connectors define boundaries;
+  UTF-16 offsets stay aligned with the editor. No locale expansion/normalization.
+- Replace current and Replace all capture one revision and use atomic batch
+  operations. Replacement text is literal; invalid or stale batches never commit
+  partial changes. Each action is one project-history step.
+- Selected-passage original inspection/restoration explicitly expands partial
+  corrected timing groups. Paragraph inspection includes hidden words. Restore
+  preserves unrelated runs, occurrence isolation and surviving cut boundaries;
+  original inspection captures its revision and disables stale previews.
+- Cut matching speech uses the same search results and explicit group validation;
+  filler controls are labeled as speech cuts.
+- Automated verification: 139 frontend tests pass, including 12 new model/UI
+  cases for phrase/literal/Unicode search, contextual navigation, live counts and
+  highlights, options, atomic validation, undo, persistence and original recovery
+  after cuts, partial-group restoration, stale previews and editor focus while
+  search is open. Typecheck/lint and all 46 native library tests pass. A native
+  release app is built at `src-tauri/target/release/bundle/macos/YusafCut.app`.
+- [New native checklist](../manual-transcript-corrections.md#phase-5-native-checkpoint--460)
+  passed: the user confirmed all checks in 4.6.0 on 2026-10-26. Phase 6 remains
+  the protected re-transcription workflow.
+- Follow-up 4.6.1: partial matching is the panel default, with strong exact-match
+  highlighting and light containing-token context. Whole word remains an explicit
+  option. Replacements use exact substring offsets, never the light context.
+  All 141 frontend tests, typecheck and lint pass, including substring replacement,
+  token context merging and Unicode boundaries. The follow-up has its own two
+  pending native checks in the manual checklist.
+- Changes are in the working tree; no Phase 5 commit or publication yet.
 
 ## Phase 4 manual feedback
 
@@ -16,8 +52,10 @@ playback bug; its 4.5.1 fix awaits native retest. Phases 5–7 remain pending.
   paused/playing seeks, native time updates, repeated-clip transitions, output
   end, and overlapping source ranges. All 127 frontend tests pass, including
   trimmed-prefix playback.
-- Retest only the flagged timing cases in 4.5.1; previously verified editing
-  results are not being discarded or claimed as failures.
+- Native retest passed: on 2026-10-26, the user confirmed all four timing checks
+  in 4.5.1, covering paused/playing seeks, repeated-clip transitions and output
+  end, highlighting, and paragraph timestamps. Together with the previously
+  verified editing checks, this completes Phase 4. Phase 5 is recorded above.
 
 ## Phases 2–4 checkpoint
 

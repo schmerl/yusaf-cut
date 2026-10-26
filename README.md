@@ -178,11 +178,22 @@ as corrected SRT/VTT text. Select the whole corrected timing group to cut it.
 
 Original-text and timing-group metadata round-trip through project save/load
 and snapshots. Older app versions may drop this metadata when saving; use the
-updated app for corrected projects. The original-text restoration UI and full
-contextual search are still pending in Phase 5; re-transcription of corrected
-projects is blocked until the Phase 6 snapshot workflow is ready.
+updated app for corrected projects. Search matches literal words and phrases
+within paragraphs, with case and whole-word options, contextual navigation,
+Replace current, and atomic Replace all. Partial matching is the default; enable
+**Whole word** for complete tokens. Exact matches are strongly highlighted within
+lighter token context. Replacements change only the matched substring and edit
+text only.
 
-See the [Phases 2–4 manual checkpoint](docs/manual-transcript-corrections.md)
+Select a passage and choose **View original selection**, or place the caret in
+a paragraph and choose **View paragraph original** to include text-hidden words.
+Review the original recognized text, then **Restore original text**. Partial
+corrected-group selections restore the whole group, as shown in the preview;
+other corrections and existing audio cuts are retained. Restoration is undoable.
+Re-transcription of corrected projects is blocked until the Phase 6 snapshot
+workflow is ready.
+
+See the [transcript corrections manual checkpoint](docs/manual-transcript-corrections.md)
 for a disposable test project and suggested checks.
 
 YusafCut currently saves projects as `.scribe` bundles. The extension is kept

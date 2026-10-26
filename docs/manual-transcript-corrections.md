@@ -1,10 +1,10 @@
-# Manual checkpoint: transcript corrections, Phases 2–4
+# Manual checkpoint: transcript corrections, Phases 2–5
 
-Use the rebuilt **4.5.1** app for the playback retest at
+Use the rebuilt **4.6.1** app for the Phase 5 walkthrough at
 `src-tauri/target/release/bundle/macos/YusafCut.app`.
 Save any work and quit the previous app before opening this one; the installed
 copy does not update automatically. Keep valuable projects backed up: older
-versions can drop correction metadata, and Phase 5/6 controls are not ready yet.
+versions can drop correction metadata. Phase 6 re-transcription controls are not ready yet.
 
 ## Disposable fixture
 
@@ -29,12 +29,13 @@ Expected initial state:
 ## Checks to perform
 
 The user verified the editing/save/export/snapshot checks below in 4.5.0.
-The two `[-]` entries retain the user's timing findings and remain open for a
-native retest in 4.5.1. Their original notes are preserved below.
+On 2026-10-26, the user confirmed all native timing retests passed in 4.5.1,
+completing the Phase 4 manual checkpoint. Original timing notes are preserved
+below as historical feedback; the reported bug is fixed and verified.
 
 - [X] Type immediately without entering a mode. Correct `serveur` to `server`;
       the timeline stays at 6 seconds and the second occurrence stays unchanged.
-- [-] Click to place the caret. Cmd-click a phrase to seek. Check playing and
+- [X] Click to place the caret. Cmd-click a phrase to seek. Check playing and
       paused states separately: seeking should preserve that state.
       Notes: In the text, both versions of the sentence map to the same times. So "aren't" is at the 1 second mark and so is "are not". Not sure if this is a bug or a weakness in the text.
 - [X] Type spaces and J/K/L/I/O/B/X; they should enter text rather than operate
@@ -56,7 +57,7 @@ native retest in 4.5.1. Their original notes are preserved below.
       entire cut in one step. Delete/Backspace alone must never do this.
 - [X] Save, close, and reopen the fixture. Confirm text/cuts survived. Do another
       text edit while a save is pending; it must remain unsaved until its own write.
-- [-] Play through both occurrences: highlighting follows output order and
+- [X] Play through both occurrences: highlighting follows output order and
       corrected phrases highlight as a unit. Paragraph timestamps seek to the
       correct occurrence, not the first occurrence of shared source words.
       Notes: Apart from the duliccated timings as mentioned above.
@@ -89,16 +90,16 @@ matching media/source range, resetting a seek in the second occurrence back to
 the first occurrence. Version 4.5.1 tracks the selected segment occurrence and
 advances through the output order rather than choosing by source time alone.
 
-- [ ] In 4.5.1, Cmd-click the second paragraph's `aren’t` while paused; the
+- [X] In 4.5.1, Cmd-click the second paragraph's `aren’t` while paused; the
       output clock should stay near 4.1 seconds, not return to 1.1 seconds.
-- [ ] Repeat while playing; playback/highlighting should remain in the second
+- [X] Repeat while playing; playback/highlighting should remain in the second
       occurrence. Cmd-click `are not` to return to the first occurrence.
-- [ ] Play from just before three seconds through the repeated clip. The output
+- [X] Play from just before three seconds through the repeated clip. The output
       playhead should continue through three seconds, highlight paragraph two,
       and stop at six seconds rather than restart or loop paragraph one.
-- [ ] Confirm paragraph timestamps seek to output 0 and 3 seconds respectively.
+- [X] Confirm paragraph timestamps seek to output 0 and 3 seconds respectively.
 
-These are follow-up checks, not a claim that the native timing retest has passed.
+The user confirmed all four follow-up checks passed in 4.5.1 on 2026-10-26.
 
 ## Verification already performed
 
@@ -106,4 +107,46 @@ Automated model, editor, caption, save-race, and native serialization tests run
 separately. jsdom tests exercise real ProseMirror transactions but do not prove
 native WebKit composition, clipboard, caret, or perceptual audio synchronization.
 Mark pending boxes complete only after those native actions have actually been
-performed. The native walkthrough is the requested user checkpoint before Phase 5.
+performed. The requested native checkpoint before Phase 5 is now complete.
+
+## Phase 5 native checkpoint — 4.6.0
+
+The user confirmed all Phase 5 checks below passed in 4.6.0 on 2026-10-26.
+This sign-off is separate from the subsequent partial-match highlighting change.
+
+- [X] Search `idempotency are not`: one phrase match spans corrected groups;
+      next/previous navigation highlights the current passage and shows context.
+- [X] Change a paragraph to `post POST post.`. Search `post`, navigate to the
+      technical occurrence, and Replace current with `POST`; other matches stay
+      unchanged. Try case and whole-word options; counts/highlights update on
+      edits and undo. Search punctuation literally, including `.` or `[`.
+- [X] Replace all is one undo step. Replacement `$&` is literal text. Attempt
+      replacement of an entire spoken paragraph with empty text; the whole batch
+      is rejected with feedback and the project stays unchanged.
+- [X] Select part of `idempotency`, then View original selection. The preview
+      shows `item potency` and explains whole-group restoration. Restore original
+      text; other corrections, timeline duration, and the second occurrence stay
+      unchanged. Undo/redo restores the operation in one step.
+- [X] Place the caret in paragraph one and View paragraph original. Restore
+      original text to recover hidden `old`; duration stays at six seconds.
+- [X] Save/reopen a corrected project and repeat original inspection/restoration.
+      Explicitly cut other speech, then restore a surviving passage: removed
+      speech stays cut and unrelated corrections survive. Check SRT/VTT text.
+- [X] Inspect an original passage, then edit or switch projects. The preview
+      becomes stale and cannot restore until inspected again.
+- [X] Cut matching speech and Cut filler speech clearly change audio/video;
+      partial corrected-group matches are rejected rather than silently expanded.
+
+Phase 5 adds no re-transcription workflow; that remains Phase 6.
+
+## Partial-match follow-up — 4.6.1
+
+The user requested strong highlighting for the exact substring and lighter
+shading for its containing token. Partial matching is now the search-panel
+default; enable **Whole word** to require full token boundaries. Replacement
+still changes only the matched substring; the lighter context is not replaced.
+
+- [ ] With `POST`, search `po`: `PO` has the stronger current-match highlight,
+      while `ST` has light token shading. Enable Whole word: no match.
+- [ ] Replace `po` with `RE`: the result is `REST`, preserving the unmatched `ST`.
+      Undo restores `POST`. Verify both themes and navigation between matches.

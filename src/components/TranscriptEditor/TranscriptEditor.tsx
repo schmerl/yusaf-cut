@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, Extension, type Editor } from "@tiptap/react";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
@@ -12,12 +12,15 @@ import { useProjectStore, endTypingGroup, useTemporalProjectStore } from "@/stor
 import { usePlayerStore } from "@/stores/playerStore";
 import { projectTranscript, type ProjectedBlock } from "@/lib/transcript";
 import {
+  originalTranscriptPassage,
+  restoreTranscriptRange,
   applyTranscriptDocument,
   splitTranscriptBlock,
   joinTranscriptBlocks,
   type TextRange,
   type EditorParagraph,
 } from "@/lib/transcriptEdits";
+import { transcriptMatchContexts, type TranscriptMatch } from "@/lib/transcriptSearch";
 import type { Project } from "@/lib/edl";
 import { formatTimecode } from "@/lib/timecode";
 import { FILLER_WORDS } from "./WordNode";
@@ -105,6 +108,23 @@ export function TranscriptEditor({
   const editorRef = useRef<Editor | null>(null);
   const [error, setError] = useState("");
   const [selection, setSelection] = useState<TextRange[]>([]);
+  const searchResults = useRef<{
+    project: Project;
+    matches: TranscriptMatch[];
+    current: number;
+  } | null>(null);
+  const [inspection, setInspection] = useState<{ project: Project; range: TextRange } | null>(null);
+  const onSearchResults = useCallback(
+    (project: Project, matches: TranscriptMatch[], current: number) => {
+      searchResults.current = { project, matches, current };
+      const editor = editorRef.current;
+      if (editor && !editor.isDestroyed) {
+        editor.view.dispatch(editor.state.tr.setMeta("search", true));
+        editor.view.dom.querySelector(".is-current-match")?.scrollIntoView?.({ block: "center" });
+      }
+    },
+    [],
+  );
   const playback = useRef(currentTime);
   playback.current = currentTime;
 
@@ -215,6 +235,28 @@ export function TranscriptEditor({
                         { key: `${block.segmentId}:${block.id}:time`, side: -1 },
                       ),
                     );
+                    const search = searchResults.current;
+                    if (search?.project === model.current) {
+                      const matches = search.matches.filter(
+                        (match) =>
+                          match.segmentId === block.segmentId && match.blockId === block.id,
+                      );
+                      for (const context of transcriptMatchContexts(block.text, matches)) {
+                        decorations.push(
+                          Decoration.inline(pos + 1 + context.from, pos + 1 + context.to, {
+                            class: "is-match-context",
+                          }),
+                        );
+                      }
+                      search.matches.forEach((match, index) => {
+                        if (match.segmentId === block.segmentId && match.blockId === block.id)
+                          decorations.push(
+                            Decoration.inline(pos + 1 + match.from, pos + 1 + match.to, {
+                              class: `is-match${index === search.current ? " is-current-match" : ""}`,
+                            }),
+                          );
+                      });
+                    }
                     for (const run of block.runs) {
                       if (run.from === run.to) continue;
                       const active =
@@ -492,13 +534,37 @@ export function TranscriptEditor({
       }),
     );
   }
+  function inspect(wholeParagraph: boolean) {
+    if (!editor || composed.current) {
+      report("Finish typing before inspecting originals.");
+      return;
+    }
+    const ranges = selectedRanges(editor);
+    const parent = editor.state.selection.$from.parent;
+    const block = blocks.find(
+      (b) => b.segmentId === parent.attrs.segmentId && b.id === parent.attrs.blockId,
+    );
+    if (!block || (!wholeParagraph && ranges.length !== 1)) {
+      report("Select a passage within one paragraph to inspect its original text.");
+      return;
+    }
+    const range = wholeParagraph
+      ? { segmentId: block.segmentId, blockId: block.id, from: 0, to: block.text.length }
+      : ranges[0]!;
+    setInspection({ project, range });
+    setError("");
+  }
+  const original =
+    inspection && inspection.project === project
+      ? originalTranscriptPassage(project, inspection.range)
+      : null;
   const fullParagraphSelected = selection.some((r) => {
     const b = blocks.find((b) => b.id === r.blockId && b.segmentId === r.segmentId);
     return b && r.from === 0 && r.to === b.text.length;
   });
   return (
     <div className="flex h-full w-full flex-col">
-      {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} />}
+      {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} onResults={onSearchResults} />}
       <div className="transcript-toolbar flex-wrap">
         <span className="label">Transcript</span>
         <Button
@@ -516,6 +582,24 @@ export function TranscriptEditor({
           title="Remove selected audio/video (⌘⇧X)"
         >
           Cut speech ⌘⇧X
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={selection.length !== 1}
+          onClick={() => inspect(false)}
+        >
+          View original selection
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={!blocks.length}
+          onClick={() => inspect(true)}
+        >
+          View paragraph original
         </Button>
         <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
           Undo
@@ -543,6 +627,49 @@ export function TranscriptEditor({
       <p className="px-4 text-xs text-muted-foreground">
         Typing edits text only. Cmd-click seeks. Cut speech changes the video.
       </p>
+      {inspection && (
+        <div
+          className="border-b border-border px-4 py-2 text-sm"
+          aria-label="Original recognized text"
+        >
+          {original ? (
+            <>
+              <p className="font-medium">Original recognized text</p>
+              <p>{original.originalText}</p>
+              <p className="text-xs text-muted-foreground">
+                {original.expanded ? "Includes the whole corrected timing group. " : ""}
+                Restores text only. Paragraph restoration includes text-hidden words.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  try {
+                    if (composed.current) throw new Error("Finish typing before restoring text.");
+                    const current = useProjectStore.getState().project;
+                    useProjectStore
+                      .getState()
+                      .commitTranscript(
+                        restoreTranscriptRange(current, inspection.project, inspection.range),
+                        inspection.project,
+                      );
+                    setInspection(null);
+                    setError("");
+                  } catch (error) {
+                    report(error);
+                  }
+                }}
+              >
+                Restore original text
+              </Button>
+            </>
+          ) : (
+            <p>The transcript changed. Inspect the passage again before restoring.</p>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setInspection(null)}>
+            Close original text
+          </Button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="px-4 text-sm text-destructive">
           {error}

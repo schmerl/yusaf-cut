@@ -36,6 +36,7 @@ import {
   type TextRange,
 } from "@/lib/transcriptEdits";
 import { projectTranscript, validateProjectTranscripts } from "@/lib/transcript";
+import { findTranscriptMatches } from "@/lib/transcriptSearch";
 import type { PauseSegment } from "@/lib/ipc";
 
 interface ProjectState {
@@ -296,22 +297,9 @@ export const useProjectStore = create<ProjectState>()(
       replaceText: (find, replace, opts) => {
         if (!find) return 0;
         const p = _get().project;
-        const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(escaped, opts?.caseSensitive ? "gu" : "giu");
-        const edits: TextEdit[] = [];
-        for (const block of projectTranscript(p)) {
-          for (const match of block.text.matchAll(re)) {
-            const from = match.index!,
-              to = from + match[0].length;
-            if (
-              opts?.wholeWord !== false &&
-              (/\p{L}|\p{N}|_/u.test(block.text[from - 1] ?? "") ||
-                /\p{L}|\p{N}|_/u.test(block.text[to] ?? ""))
-            )
-              continue;
-            edits.push({ segmentId: block.segmentId, blockId: block.id, from, to, text: replace });
-          }
-        }
+        const edits = findTranscriptMatches(p, find, opts).map((match) => ({
+          ...match, text: replace,
+        }));
         _get().applyTextEdits(edits, p);
         return edits.length;
       },

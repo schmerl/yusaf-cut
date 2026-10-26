@@ -50,7 +50,7 @@ output positions. VideoPreview retains the occurrence chosen by output seeking
 and advances by timeline order at segment/media end; it must not pick the first
 matching source range when processing a native frame or time-update event.
 
-### Transcript correction model and editor (Phases 1–4)
+### Transcript correction model and editor (Phases 1–5)
 
 Segments optionally carry versioned `transcript` metadata: occurrence ID,
 original word anchors, stable blocks, and editable text runs. Audio remains
@@ -75,6 +75,21 @@ can be validated; autosave and export see the last valid project. Echoed local
 commits update decorations without replacing the document/caret. External
 undo/load/cuts rebuild from the model and restore a logical paragraph/offset.
 Playback decorations cache their projected block lookup for the current project.
+
+`src/lib/transcriptSearch.ts` finds nonoverlapping literal matches in projected
+paragraphs, in output order. UTF-16 block offsets drive counts, contextual
+navigation, ProseMirror search decorations, and replacement/cut actions. Unicode
+letters, combining marks, numbers and connector punctuation define whole-word
+boundaries; case-insensitive matching uses Unicode simple folding without locale
+expansion or normalization. Regex syntax and replacement substitutions are literal.
+Batches capture one project revision and commit once or fail without mutation.
+The panel defaults to partial matching; Whole word is opt-in. Search decorations
+shade containing Unicode tokens lightly and exact matched offsets strongly.
+Overlapping token contexts merge without changing match counts or replacement
+ranges; corrected audio timing groups can contain several displayed tokens.
+Original-text inspection captures the revision and selected timing groups;
+restoration expands partial groups explicitly, preserves unmatched runs and cuts,
+and supports whole-paragraph recovery of hidden text. Stale previews cannot apply.
 
 Zundo is the sole committed history: successive typing within 800ms can share
 one checkpoint, while explicit cuts/batches/restores are atomic. Delayed history

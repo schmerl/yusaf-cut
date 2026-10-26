@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.1] - 2026-10-26
+
+### Changed
+- Transcript search defaults to partial matches. The exact substring is strongly
+  highlighted with lighter shading around the containing token. Whole word is
+  explicitly labeled; replacement still affects only the exact matched text.
+
+## [4.6.0] - 2026-10-26
+
+### Added
+- Contextual transcript search across word records and corrected groups, with
+  current/next/previous matches, Unicode whole-word and case options, and model
+  highlights. Replace current and Replace all preserve audio and support undo;
+  invalid or stale batches leave the project unchanged.
+- Original recognized-text inspection and restoration for selected timing groups
+  or a paragraph, including hidden words after save/reopen. Restoration preserves
+  unrelated corrections and existing cuts; changed projects invalidate previews.
+
+### Changed
+- Search-match and filler removal controls explicitly cut speech. Matching speech
+  uses the same projected search results and whole-timing-group cut validation.
+
 ## [4.5.1] - 2026-10-26
 
 ### Fixed

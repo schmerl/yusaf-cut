@@ -1,9 +1,11 @@
 # Feature 3: Manual transcript corrections
 
-Status: Phases 1–4 implemented, with automated editor and model checks passing.
-The user verified Phase 4 editing in 4.5.0; a repeated-source playback fix in
-4.5.1 awaits retest of the two flagged timing checks. Contextual search/original-text
-UI (Phase 5) and the protected re-transcription workflow (Phase 6) remain pending.
+Status: Phases 1–5 implemented, with automated editor and model checks passing.
+The user completed the Phase 4 native checkpoint in 4.5.1 on 2026-10-26.
+The user confirmed all Phase 5 native checks passed in 4.6.0. The requested
+partial-match highlighting follow-up is implemented in 4.6.1 and awaits native
+verification. The protected re-transcription
+workflow (Phase 6) remains pending.
 
 Agent handoff: [phased implementation plan](../plans/03-transcript-corrections.md).
 
@@ -145,6 +147,10 @@ one of those operations accidentally.
 - Provide next/previous match navigation, current-match highlighting,
   **Replace current**, and **Replace all**.
 - Provide case-sensitive and whole-word options; matching is literal, not regex.
+- Partial matching is the default in the search panel. Highlight the exact
+  substring strongly and its containing token lightly (for example, `po` finds
+  `POST`, with `PO` stronger than `ST`). Whole word requires full boundaries;
+  replacement always changes only the exact match, not the lighter context.
 - Case-insensitive searching can find “post” and “POST”; Replace current lets
   the user make the contextual choice. Replace all requires an explicit action.
 - Preserve unmatched punctuation and surrounding text. Apply the replacement

@@ -388,20 +388,27 @@
 }
 
 /* ── Find / replace match highlight ─────────────────────────────────────── */
-.transcript-editor .word.is-match {
-  background-color: hsl(48 95% 55% / 0.3);
+.transcript-editor .is-match-context {
+  background-color: hsl(48 95% 55% / 0.16);
   border-radius: 3px;
 }
-.transcript-editor .word.is-current-match {
+.transcript-editor .is-match {
+  background-color: hsl(48 95% 55% / 0.4);
+  border-radius: 3px;
+}
+.transcript-editor .is-current-match {
   background-color: hsl(28 95% 58% / 0.55);
   outline: 2px solid hsl(28 95% 58% / 0.85);
   outline-offset: 0;
   color: hsl(var(--foreground));
 }
-[data-theme="dark"] .transcript-editor .word.is-match {
-  background-color: hsl(48 95% 55% / 0.22);
+[data-theme="dark"] .transcript-editor .is-match-context {
+  background-color: hsl(48 95% 55% / 0.12);
 }
-[data-theme="dark"] .transcript-editor .word.is-current-match {
+[data-theme="dark"] .transcript-editor .is-match {
+  background-color: hsl(48 95% 55% / 0.3);
+}
+[data-theme="dark"] .transcript-editor .is-current-match {
   background-color: hsl(28 95% 58% / 0.45);
 }
 
