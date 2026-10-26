@@ -44,6 +44,18 @@ This document explains how the code maps to the spec at the repo root.
 
 ## The EDL contract
 
+### Transcript correction foundations (Phase 1)
+
+Segments optionally carry versioned `transcript` metadata: occurrence ID,
+original word anchors, stable blocks, and editable text runs. Audio remains
+defined by `segment.words` and the EDL ranges. `src/lib/transcript.ts` provides
+explicit, pure legacy normalization and an output-order projection with display
+offsets and source/output timing. The existing UI does not consume that projection
+yet. Native save/load and snapshot boundaries validate and preserve overlays.
+Project loading never seeds the raw-recognition cache with saved project text.
+
+See [the model design and Phase 2 integration obligations](plans/03-transcript-model-design.md).
+
 Everything important happens through `Project`:
 
 ```ts

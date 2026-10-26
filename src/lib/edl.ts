@@ -12,6 +12,7 @@
 //      until export.
 
 import { v4 as uuidv4 } from "uuid";
+import type { TranscriptMetadata } from "./transcript";
 
 export type MediaId = string;
 
@@ -41,6 +42,8 @@ export interface Segment {
   words: Word[];
   sourceIn: number;
   sourceOut: number;
+  /** Optional occurrence-scoped text overlay; audio anchors remain in words. */
+  transcript?: TranscriptMetadata;
 }
 
 export type ExportPreset = "youtube-1080p" | "podcast-audio" | "custom";

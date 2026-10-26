@@ -1,5 +1,5 @@
 import { loadProject } from "./ipc";
-import { cacheProjectTranscripts } from "./transcriptCache";
+import { validateProjectTranscripts } from "./transcript";
 import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -25,8 +25,8 @@ export async function openSavedProject(path: string): Promise<void> {
   ui.setMediaLoading(true);
   try {
     const loaded = await loadProject(path);
+    validateProjectTranscripts(loaded);
     const bundle = projectBundlePath(path);
-    cacheProjectTranscripts(loaded);
     replaceProjectBaseline(loaded, { dirty: false, filePath: bundle });
     useProjectStore.getState().setPauseTokens([]);
     usePlayerStore.getState().reset();

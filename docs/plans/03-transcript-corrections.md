@@ -1,6 +1,24 @@
 # Implementation plan: feature 3 — manual transcript corrections
 
-Status: Implementation handoff. This plan does not implement the feature.
+Status: Phase 1 foundations implemented; Phases 2–7 remain pending.
+
+## Phase 1 checkpoint
+
+- Branch: `feature/transcript-correction-model`; application version 4.4.0.
+- Added the optional TS/Rust overlay model, deterministic explicit normalization,
+  validated output-order projection, and native project/snapshot round trips.
+- Removed project-derived recognition-cache writes and isolated raw recognition
+  in a new namespace, ignoring potentially edited v1 cache entries.
+- [Model design, sample serialization, and Phase 2 obligations](03-transcript-model-design.md).
+- Baseline: 69 frontend tests. Phase 1 verification: 89 frontend tests and 46
+  native library tests, plus typecheck/lint and production frontend build.
+- Normalization is deliberately opt-in until Phase 2 reconciles overlays in all
+  cut/recognition operations. Legacy loads validate but do not materialize
+  overlays or change dirty state. Phase 3 will connect projection consumers;
+  this phase does not expose a partially functional correction UI.
+- Next: Phase 2 pure edit/cut operations, explicit history boundaries, and save
+  revision protection. No editing transaction, restoration command, or UI is
+  claimed complete by this checkpoint.
 
 Source of truth: [accepted requirements](../requirements/03-transcript-corrections.md).
 If this plan conflicts with those requirements, follow the requirements and

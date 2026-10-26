@@ -29,6 +29,12 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 
 ## Save / load
 
+Phase 1 correction metadata is exercised by the shared synthetic fixture and
+native round-trip tests (`tests/transcript.test.ts` and Rust `transcript::tests`).
+Inline correction, restoration, and caption UI checks become applicable in the
+later implementation phases; a legacy project should still open without being
+marked dirty merely by loading it.
+
 - [ ] Cmd+S → choose location → `.scribe` bundle appears on disk
 - [ ] Quit and relaunch
 - [ ] Recent files menu shows the project; opening it restores all edits

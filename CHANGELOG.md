@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-10-26
+
+### Added
+- **Transcript correction foundations (Phase 1)** — optional occurrence-scoped
+  originals, paragraphs, corrected text runs, and audio-anchor mappings;
+  deterministic legacy normalization and a pure output-time projection.
+- Rust validation and save/load/snapshot round trips for correction metadata.
+  The editor remains read-only; editing operations and UI follow in later phases.
+
+### Fixed
+- Opening projects no longer writes possibly edited text into the shared
+  recognition cache. Raw recognition uses a fresh cache namespace; old caches
+  are ignored rather than reused as original recognition output.
+
 ## [4.3.2] - 2026-10-26
 
 ### Fixed

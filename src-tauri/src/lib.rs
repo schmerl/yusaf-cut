@@ -17,6 +17,7 @@ pub mod recording_state;
 pub mod smart_cut;
 pub mod snapshots;
 pub mod transcribe;
+pub mod transcript;
 
 /// Shared application state passed into every Tauri command.
 #[derive(Default)]

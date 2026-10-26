@@ -326,6 +326,12 @@ Tasks:
 
 ### Phase 5 — Project save/load (Day 19–20)
 
+Correction-model Phase 1 adds optional, versioned segment transcript overlays.
+Original words, stable paragraph/run identity, hidden text, and anchor mappings
+round-trip through native save/load and gzip snapshots. The outer project format
+remains version 1; unsupported project or overlay versions are rejected. Older
+binaries may drop new fields on save. See [the model design](plans/03-transcript-model-design.md).
+
 Saved `.scribe` projects are directories. **File → Open Project** selects a
 directory, while the toolbar's **Open** action and drag-and-drop also recognize
 the internal `project.json` file. These inputs use the project loader rather

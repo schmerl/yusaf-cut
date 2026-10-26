@@ -1,0 +1,223 @@
+{
+  "version": 1,
+  "id": "fixture",
+  "name": "Corrections",
+  "createdAt": "2026-10-26",
+  "updatedAt": "2026-10-26",
+  "media": {
+    "m1": {
+      "id": "m1",
+      "path": "/tmp/lecture.mp4",
+      "duration": 5,
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "audioSampleRate": 48000,
+      "sha256": "fixture-only"
+    }
+  },
+  "segments": [
+    {
+      "id": "s1",
+      "mediaId": "m1",
+      "sourceIn": 0,
+      "sourceOut": 3,
+      "words": [
+        {
+          "id": "w0",
+          "text": "item",
+          "start": 0,
+          "end": 0.4,
+          "confidence": 0.95
+        },
+        {
+          "id": "w1",
+          "text": "potency",
+          "start": 0.4,
+          "end": 1,
+          "confidence": 0.95
+        },
+        {
+          "id": "w2",
+          "text": "aren’t",
+          "start": 1.1,
+          "end": 1.8,
+          "confidence": 0.95
+        },
+        {
+          "id": "w3",
+          "text": "the",
+          "start": 2,
+          "end": 2.3,
+          "confidence": 0.95
+        },
+        {
+          "id": "w4",
+          "text": "old",
+          "start": 2.3,
+          "end": 2.6,
+          "confidence": 0.95
+        },
+        {
+          "id": "w5",
+          "text": "server.",
+          "start": 2.6,
+          "end": 3,
+          "confidence": 0.95
+        }
+      ],
+      "transcript": {
+        "version": 1,
+        "occurrenceId": "occurrence-1",
+        "originals": [
+          {
+            "id": "w0",
+            "text": "item",
+            "start": 0,
+            "end": 0.4,
+            "confidence": 0.95
+          },
+          {
+            "id": "w1",
+            "text": "potency",
+            "start": 0.4,
+            "end": 1,
+            "confidence": 0.95
+          },
+          {
+            "id": "w2",
+            "text": "aren’t",
+            "start": 1.1,
+            "end": 1.8,
+            "confidence": 0.95
+          },
+          {
+            "id": "w3",
+            "text": "the",
+            "start": 2,
+            "end": 2.3,
+            "confidence": 0.95
+          },
+          {
+            "id": "w4",
+            "text": "old",
+            "start": 2.3,
+            "end": 2.6,
+            "confidence": 0.95
+          },
+          {
+            "id": "w5",
+            "text": "server.",
+            "start": 2.6,
+            "end": 3,
+            "confidence": 0.95
+          }
+        ],
+        "blocks": [
+          {
+            "id": "block-1",
+            "runs": [
+              {
+                "id": "r1",
+                "text": "idempotency",
+                "separatorBefore": "",
+                "anchorIds": [
+                  "w0",
+                  "w1"
+                ]
+              },
+              {
+                "id": "r2",
+                "text": "are not",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w2"
+                ]
+              },
+              {
+                "id": "r3",
+                "text": "the",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w3"
+                ]
+              },
+              {
+                "id": "r4",
+                "text": "",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w4"
+                ]
+              },
+              {
+                "id": "r5",
+                "text": "serveur.",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w5"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "s2",
+      "mediaId": "m1",
+      "sourceIn": 0,
+      "sourceOut": 3,
+      "words": [
+        {
+          "id": "w0",
+          "text": "item",
+          "start": 0,
+          "end": 0.4,
+          "confidence": 0.95
+        },
+        {
+          "id": "w1",
+          "text": "potency",
+          "start": 0.4,
+          "end": 1,
+          "confidence": 0.95
+        },
+        {
+          "id": "w2",
+          "text": "aren’t",
+          "start": 1.1,
+          "end": 1.8,
+          "confidence": 0.95
+        },
+        {
+          "id": "w3",
+          "text": "the",
+          "start": 2,
+          "end": 2.3,
+          "confidence": 0.95
+        },
+        {
+          "id": "w4",
+          "text": "old",
+          "start": 2.3,
+          "end": 2.6,
+          "confidence": 0.95
+        },
+        {
+          "id": "w5",
+          "text": "server.",
+          "start": 2.6,
+          "end": 3,
+          "confidence": 0.95
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "exportPreset": "youtube-1080p",
+    "paddingMs": 80
+  },
+  "chapters": [],
+  "audioTracks": []
+}

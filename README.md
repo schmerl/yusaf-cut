@@ -171,6 +171,11 @@ reporting process.
 
 ## Project Files
 
+Transcript correction Phase 1 adds optional original-text and timing-group
+metadata to project save/load and snapshots. Inline correction controls are
+still pending. Older app versions may drop this new metadata when saving;
+use the updated app for projects that contain correction metadata.
+
 YusafCut currently saves projects as `.scribe` bundles. The extension is kept
 for compatibility with existing project files while the product name changes to
 YusafCut.

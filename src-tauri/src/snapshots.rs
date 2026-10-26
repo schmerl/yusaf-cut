@@ -62,6 +62,7 @@ fn body_path(bundle: &Path, id: &str, ts: &str) -> PathBuf {
 
 /// Write a new snapshot. Returns the snapshot index that was written.
 pub async fn create(bundle: &Path, project: &Project, label: &str) -> Result<SnapshotIndex> {
+    crate::transcript::validate_project(project)?;
     let id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
     // ISO 8601 minus colons (filesystem-safe), keeps lexicographic == time order.
@@ -136,6 +137,7 @@ pub async fn restore(bundle: &Path, id: &str) -> Result<Project> {
     let body = find_body(bundle, id).await?;
     let json = gzip_decompress(&body)?;
     let project: Project = serde_json::from_slice(&json).context("parsing snapshot body")?;
+    crate::transcript::validate_project(&project)?;
     Ok(project)
 }
 

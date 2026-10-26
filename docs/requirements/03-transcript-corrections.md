@@ -1,7 +1,8 @@
 # Feature 3: Manual transcript corrections
 
-Status: Requirements defined from the user's interview answers. Ready for
-implementation; no implementation changes have been made.
+Status: Requirements defined from the user's interview answers. Phase 1 model,
+projection, validation, and persistence foundations are implemented. Editing
+operations and UI remain pending in the later phases.
 
 Agent handoff: [phased implementation plan](../plans/03-transcript-corrections.md).
 
