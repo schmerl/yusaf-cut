@@ -1,7 +1,9 @@
 # Feature 3: Manual transcript corrections
 
 Status: Requirements defined from the user's interview answers. Ready for
-implementation planning; no implementation changes have been made.
+implementation; no implementation changes have been made.
+
+Agent handoff: [phased implementation plan](../plans/03-transcript-corrections.md).
 
 ## Goal
 
