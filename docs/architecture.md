@@ -72,6 +72,19 @@ EDL operation.
 
 ## UI loading pattern
 
+### Project opening
+
+`src/lib/openProject.ts` provides the shared saved-project loader used by the
+toolbar Open action, File → Open Project, and drag-and-drop. Project paths are
+identified before media import, so `.scribe` directories and their `project.json`
+files bypass FFprobe. File → Open Project uses a native directory picker.
+The loader restores the project baseline, clears stale pause/playback state,
+and records the containing bundle as `filePath`, including when the selected
+input was the internal JSON file. Autosave and snapshots therefore continue
+to operate on the bundle directory.
+
+### Progress indicators
+
 Every operation that blocks the UI **must** show a progress indicator. The
 `uiStore` tracks five loader states:
 

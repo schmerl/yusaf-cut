@@ -17,6 +17,7 @@ import { importMedia } from "@/lib/ipc";
 import { readTranscriptCache } from "@/lib/transcriptCache";
 import { totalDuration } from "@/lib/edl";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { isProjectPath, openSavedProject } from "@/lib/openProject";
 
 // Resizable side-panel constraints — measured in CSS pixels.
 const MIN_VIDEO_WIDTH = 360;
@@ -89,10 +90,14 @@ export default function App() {
     if (!("__TAURI_INTERNALS__" in window)) return;
 
     async function addDroppedClip(path: string) {
+      if (isProjectPath(path)) {
+        await openSavedProject(path);
+        return;
+      }
       if (!isSupportedMediaPath(path)) {
         pushToast({
           title: "Unsupported file",
-          description: "Drop an MP4, MOV, MKV, WebM, M4A, or WAV file.",
+          description: "Drop a media file, a .scribe project folder, or its project.json file.",
           variant: "destructive",
         });
         return;
@@ -129,8 +134,10 @@ export default function App() {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
-        const mediaPath = event.payload.paths.find(isSupportedMediaPath) ?? event.payload.paths[0];
-        if (mediaPath) void addDroppedClip(mediaPath);
+        const path = event.payload.paths.find(isProjectPath)
+          ?? event.payload.paths.find(isSupportedMediaPath)
+          ?? event.payload.paths[0];
+        if (path) void addDroppedClip(path);
       })
       .then((dispose) => {
         if (cancelled) dispose();

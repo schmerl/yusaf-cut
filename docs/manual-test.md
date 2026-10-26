@@ -32,6 +32,12 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 - [ ] Cmd+S → choose location → `.scribe` bundle appears on disk
 - [ ] Quit and relaunch
 - [ ] Recent files menu shows the project; opening it restores all edits
+- [ ] File → Open Project selects a `.scribe` folder and restores saved edits
+- [ ] Toolbar Open → select the bundle's `project.json`; it opens as a project
+      without a media-import/FFprobe error; Save writes back to the bundle
+- [ ] Drop the `.scribe` folder (or its `project.json`) onto the app; saved
+      edits and transcripts are restored and old playback/pause state is cleared
+- [ ] Toolbar Open still imports an ordinary MP4 as a new project
 - [ ] Move the source media file; relaunch → relink dialog appears; selecting
       the new path completes successfully
 

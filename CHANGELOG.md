@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.2] - 2026-10-26
+
+### Fixed
+- **Reopen saved projects** — the toolbar Open action recognizes `.scribe`
+  project folders and their `project.json` files instead of probing them as media.
+  File → Open Project selects the bundle directory directly; drag-and-drop uses
+  the same project loader. Reopening the JSON keeps the containing bundle as the
+  save/snapshot destination and restores existing edits and transcripts.
+
 ## [4.3.1] - 2026-10-26
 
 ### Fixed

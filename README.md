@@ -175,6 +175,12 @@ YusafCut currently saves projects as `.scribe` bundles. The extension is kept
 for compatibility with existing project files while the product name changes to
 YusafCut.
 
+To reopen a saved project, use **File → Open Project** and select the `.scribe`
+folder. You can also use the toolbar's **Open** button to select the
+`project.json` inside that folder, or drop the project folder/file onto the app.
+Projects restore saved edits and transcripts; they do not need to be imported
+or transcribed again.
+
 ## Tech Stack
 
 - **Tauri 2.x:** native macOS shell and Rust backend

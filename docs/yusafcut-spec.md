@@ -326,6 +326,12 @@ Tasks:
 
 ### Phase 5 — Project save/load (Day 19–20)
 
+Saved `.scribe` projects are directories. **File → Open Project** selects a
+directory, while the toolbar's **Open** action and drag-and-drop also recognize
+the internal `project.json` file. These inputs use the project loader rather
+than the media importer. Loading from the JSON retains the containing directory
+as the project's save/snapshot path.
+
 **Goal:** Quit the app, come back, pick up exactly where you left off.
 
 Tasks:

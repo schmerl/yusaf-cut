@@ -25,7 +25,6 @@ import {
   exportVideo,
   importMedia,
   listModels,
-  loadProject,
   onModelDownloadProgress,
   saveProject,
   startNativeRecording,
@@ -70,11 +69,11 @@ import { Toolbox } from "@/components/Toolbox/Toolbox";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
 import { SnapshotsDialog } from "@/components/Toolbox/SnapshotsDialog";
 import {
-  cacheProjectTranscripts,
   clearTranscriptCache,
   readTranscriptCache,
   writeTranscriptCache,
 } from "@/lib/transcriptCache";
+import { isProjectPath, openSavedProject } from "@/lib/openProject";
 
 const MODELS: { name: WhisperModel; label: string; sizeMb: number }[] = [
   { name: "tiny", label: "Tiny (fast, lower accuracy)", sizeMb: 75 },
@@ -215,10 +214,19 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
 
   async function handleOpen() {
     const path = await openDialog({
+      title: "Open media or a saved project",
       multiple: false,
-      filters: [{ name: "Media", extensions: MEDIA_EXTENSIONS }],
+      filters: [
+        { name: "Media or project", extensions: [...MEDIA_EXTENSIONS, "scribe", "json"] },
+        { name: "Media", extensions: MEDIA_EXTENSIONS },
+        { name: "YusafCut project", extensions: ["scribe", "json"] },
+      ],
     });
     if (typeof path !== "string") return;
+    if (isProjectPath(path)) {
+      await openSavedProject(path);
+      return;
+    }
     setMediaLoading(true);
     try {
       const media = await importMedia(path);
@@ -297,26 +305,12 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
 
   async function handleOpenProject() {
     const path = await openDialog({
+      title: "Choose the saved .scribe project folder",
       multiple: false,
-      filters: [{ name: "YusafCut project", extensions: ["scribe"] }],
+      directory: true,
     });
     if (typeof path !== "string") return;
-    setMediaLoading(true);
-    try {
-      const loaded = await loadProject(path);
-      cacheProjectTranscripts(loaded);
-      replaceProjectBaseline(loaded, { dirty: false, filePath: path });
-      resetPlayer();
-      pushToast({ title: "Project opened", description: path });
-    } catch (err) {
-      pushToast({
-        title: "Failed to open project",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setMediaLoading(false);
-    }
+    await openSavedProject(path);
   }
 
   async function ensureSelectedModelInstalled() {
