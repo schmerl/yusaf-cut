@@ -195,11 +195,13 @@ rewording requirement satisfied; simple string matching alone is insufficient.
 Suggested order for the requested features:
 
 1. Caption export repair — implemented.
-2. Manual transcript corrections (feature 3) — requirements still to be completed.
-3. Repeated phrases and false starts (this feature).
-4. Script-assisted terminology/capitalization correction (feature 2).
+2. Manual transcript corrections (feature 3) — requirements defined in
+   [03-transcript-corrections.md](03-transcript-corrections.md).
+3. Script-assisted terminology/capitalization correction (feature 2).
+4. Repeated phrases and false starts (this feature).
 
-Manual corrections provide a way to repair recognition mistakes that could
-otherwise confuse detection. Script assistance remains a separate feature;
-this detector must work without a supplied script. This ordering is a planning
-recommendation, not a requirement to couple the implementations.
+Manual and script-assisted corrections provide ways to repair recognition
+mistakes that could otherwise confuse detection. Script assistance remains a
+separate feature; this detector must work without a supplied script. This
+ordering is a planning recommendation, not a requirement to couple the
+implementations.
