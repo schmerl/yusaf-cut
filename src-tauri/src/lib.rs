@@ -59,6 +59,7 @@ pub fn run() {
             commands::misc::reveal_in_finder,
             commands::pauses::detect_pauses,
             commands::retakes::retake_model_status,
+            commands::retakes::retake_ollama_models,
             commands::retakes::download_retake_model,
             commands::retakes::analyze_retake_windows,
         ])

@@ -1,5 +1,5 @@
 import type { Project } from "./edl";
-import { analyzeRetakeWindows, type RetakeWindowResult } from "./retakeIpc";
+import { analyzeRetakeWindows, type RetakeBackend, type RetakeWindowResult } from "./retakeIpc";
 import {
   groupRetakes,
   lexicalRetakes,
@@ -20,7 +20,9 @@ export async function detectRetakes(
     windows: RetakeWindow[],
     signal: AbortSignal,
     progress?: (value: number) => void,
+    backend?: RetakeBackend,
   ) => Promise<RetakeWindowResult[]> = analyzeRetakeWindows,
+  backend: RetakeBackend = { kind: "mlx" },
 ) {
   signal.throwIfAborted();
   const records = retakeRecords(project);
@@ -28,7 +30,9 @@ export async function detectRetakes(
   const windows = retakeWindows(records);
   const lexical = windows.flatMap(lexicalRetakes);
   const semanticWindows = windows.filter((w) => semanticHypotheses(w).length > 0);
-  const results = semanticWindows.length ? await analyze(semanticWindows, signal, progress) : [];
+  const results = semanticWindows.length
+    ? await analyze(semanticWindows, signal, progress, backend)
+    : [];
   signal.throwIfAborted();
   if (
     results.length !== semanticWindows.length ||

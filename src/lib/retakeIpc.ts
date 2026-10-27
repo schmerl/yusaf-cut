@@ -11,6 +11,8 @@ export interface RetakeModelStatus {
   sizeBytes: number;
 }
 export const retakeModelStatus = () => invoke<RetakeModelStatus>("retake_model_status");
+export const retakeOllamaModels = () => invoke<string[]>("retake_ollama_models");
+export type RetakeBackend = { kind: "mlx" } | { kind: "ollama"; model: string };
 export interface RetakeWindowResult {
   id: string;
   groups: RawRetakeGroup[];
@@ -57,10 +59,12 @@ export function analyzeRetakeWindows(
   windows: RetakeWindow[],
   signal: AbortSignal,
   progress?: (value: number) => void,
+  backend: RetakeBackend = { kind: "mlx" },
 ) {
   return jobRequest<RetakeWindowResult[]>(
     "analyze_retake_windows",
     {
+      backend,
       windows: windows.map((w) => ({
         id: w.id,
         records: w.records.map(({ text, start, end }) => ({ text, start, end })),

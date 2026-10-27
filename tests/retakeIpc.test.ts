@@ -14,13 +14,29 @@ vi.mock("@tauri-apps/api/event", () => ({
     };
   }),
 }));
-import { downloadRetakeModel } from "@/lib/retakeIpc";
+import { analyzeRetakeWindows, downloadRetakeModel, retakeOllamaModels } from "@/lib/retakeIpc";
+import { retakeRecords, retakeWindows } from "@/lib/retakes";
+import { speech } from "./helpers/retakeProject";
 beforeEach(() => {
   mock.listeners.clear();
   mock.invoke.mockReset();
   mock.disposed.mockReset();
 });
 describe("native retake job cancellation", () => {
+  it("lists local models and passes the selected Ollama backend to analysis", async () => {
+    mock.invoke.mockResolvedValueOnce(["qwen:8b"]);
+    expect(await retakeOllamaModels()).toEqual(["qwen:8b"]);
+    const windows = retakeWindows(retakeRecords(speech("Use POST sorry PUT for updates.")));
+    mock.invoke.mockResolvedValueOnce([]);
+    await analyzeRetakeWindows(windows, new AbortController().signal, undefined, {
+      kind: "ollama",
+      model: "qwen:8b",
+    });
+    expect(mock.invoke).toHaveBeenCalledWith(
+      "analyze_retake_windows",
+      expect.objectContaining({ backend: { kind: "ollama", model: "qwen:8b" } }),
+    );
+  });
   it("cancels a job announced after the abort and ignores unrelated jobs", async () => {
     const controller = new AbortController();
     let finish!: () => void;
