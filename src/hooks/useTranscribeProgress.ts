@@ -4,11 +4,7 @@
  */
 
 import { useEffect } from "react";
-import {
-  onExportProgress,
-  onModelDownloadProgress,
-  onTranscribeProgress,
-} from "@/lib/ipc";
+import { onExportProgress, onModelDownloadProgress, onTranscribeProgress } from "@/lib/ipc";
 import { useUIStore } from "@/stores/uiStore";
 
 export function useTranscribeProgress() {
@@ -23,7 +19,10 @@ export function useTranscribeProgress() {
     let unlistenModel: (() => void) | undefined;
 
     void onTranscribeProgress((p) => {
-      setTranscribeProgress(p.progress >= 1 ? null : p.progress);
+      // A native completion covers one clip. The workflow owns completion of
+      // the entire staged batch, including validation and commit. Ignore late
+      // events after it has finished instead of reopening the progress dialog.
+      if (useUIStore.getState().transcribeProgress !== null) setTranscribeProgress(p.progress);
     }).then((fn) => {
       unlistenTranscribe = fn;
     });
@@ -47,5 +46,10 @@ export function useTranscribeProgress() {
       unlistenExport?.();
       unlistenModel?.();
     };
-  }, [setTranscribeProgress, setExportingProgress, setModelDownloadProgress, setModelDownloadLabel]);
+  }, [
+    setTranscribeProgress,
+    setExportingProgress,
+    setModelDownloadProgress,
+    setModelDownloadLabel,
+  ]);
 }

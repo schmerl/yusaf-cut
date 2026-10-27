@@ -50,7 +50,7 @@ output positions. VideoPreview retains the occurrence chosen by output seeking
 and advances by timeline order at segment/media end; it must not pick the first
 matching source range when processing a native frame or time-update event.
 
-### Transcript correction model and editor (Phases 1–5)
+### Transcript correction model and editor (Phases 1–6)
 
 Segments optionally carry versioned `transcript` metadata: occurrence ID,
 original word anchors, stable blocks, and editable text runs. Audio remains
@@ -97,6 +97,22 @@ capture was removed. `src/lib/projectSaves.ts` serializes native writes and
 acknowledges only the saved project reference/session, so a late save cannot mark
 newer edits or a different opened project clean. Undo/redo recomputes dirty state
 against the acknowledged saved revision.
+
+`src/lib/transcriptionWorkflow.ts` captures project reference, session generation,
+selected media IDs and force mode. Its snapshot preflight serializes a save of
+that exact in-memory revision, then snapshots it. Save cancellation/failure,
+snapshot failure or stale project/session prevents recognition. Raw clip results
+are staged separately and validated before one baseline replacement. Affected
+segments rebuild originals/blocks from surviving raw anchors; unrelated segments
+retain their overlays and source ranges. Forced recognition bypasses existing
+caches; cache writes occur only after the full batch commits and contain only raw
+successful recognition. Repeated occurrences are updated independently within
+their retained ranges. Session undo resets on success, consistently with project
+load; the pre-transcription snapshot is the persistent recovery mechanism.
+Recording imports use this same guarded recognition path. Pause detection checks
+its captured project/session before applying asynchronous results. Native
+per-clip progress completion no longer hides the batch progress dialog; the
+workflow closes it after validation/commit or failure and ignores late events.
 
 Everything important happens through `Project`:
 

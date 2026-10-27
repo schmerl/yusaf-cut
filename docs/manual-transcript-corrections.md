@@ -1,10 +1,11 @@
-# Manual checkpoint: transcript corrections, Phases 2–5
+# Manual checkpoint: transcript corrections, Phases 2–7
 
-Use the rebuilt **4.6.1** app for the Phase 5 walkthrough at
+Use the rebuilt **4.7.0** app for the final walkthrough at
 `src-tauri/target/release/bundle/macos/YusafCut.app`.
 Save any work and quit the previous app before opening this one; the installed
 copy does not update automatically. Keep valuable projects backed up: older
-versions can drop correction metadata. Phase 6 re-transcription controls are not ready yet.
+versions can drop correction metadata. Use a disposable project for destructive
+re-transcription tests.
 
 ## Disposable fixture
 
@@ -70,8 +71,8 @@ For real speech/video synchronization, repeat on a **copy** of a transcribed
 lecture project and compare playback and exported captions near the beginning,
 several existing cuts, and the end. Text corrections must not change source
 ranges/duration; pre-existing export cut-padding drift should be recorded
-separately. Do not run Re-transcribe on a valuable corrected project: this build
-blocks it until the Phase 6 snapshot-backed replacement workflow is implemented.
+separately. Re-transcription replaces existing text; use a disposable copy and
+Snapshot first to verify recovery without risking a valuable corrected project.
 
 ## Timing-note diagnosis and retest
 
@@ -146,7 +147,52 @@ shading for its containing token. Partial matching is now the search-panel
 default; enable **Whole word** to require full token boundaries. Replacement
 still changes only the matched substring; the lighter context is not replaced.
 
-- [ ] With `POST`, search `po`: `PO` has the stronger current-match highlight,
-      while `ST` has light token shading. Enable Whole word: no match.
-- [ ] Replace `po` with `RE`: the result is `REST`, preserving the unmatched `ST`.
-      Undo restores `POST`. Verify both themes and navigation between matches.
+- [X] In the native dark theme, search `po` in `POST`: `PO` has the stronger
+      current-match highlight, while `ST` has light token shading. Whole word
+      produces no match.
+- [X] Replace `po` with `RE`: the result is `REST`, preserving `ST`. Undo restores
+      `POST`. Verified in the 4.7.0 native app on the disposable legacy fixture.
+- [ ] Inspect the light-theme appearance and token context while navigating
+      next/previous matches. Navigation itself is covered by automated UI tests.
+
+## Final native checkpoint — 4.7.0 (Phases 6–7)
+
+Native checks below were performed in 4.7.0 on generated tone-video projects
+under `src-tauri/target/manual-corrections/final-4.7/`. No personal recording was
+used. Further live app interaction stopped at the user's request; ordinary unit,
+integration and command-line checks remain authorized.
+
+- [X] Legacy project loads without correction metadata. A phrase correction to
+      `東京 POST` preserves six-second duration and the other occurrence.
+- [X] The replacement warning offers Cancel, Proceed and Snapshot first. Cancel
+      preserves the corrected project and duration.
+- [X] On an unsaved corrected project (`POST rings`), Snapshot first opens native
+      Save. Cancel Save leaves the correction unsaved and unchanged; the warning
+      states recognition has not started.
+- [X] Snapshot first saves current corrections and creates `Before re-transcription`
+      before recognition. Its native compressed snapshot contains `東京 POST`.
+      Save/snapshot failures are covered by controlled automated tests, without
+      deliberately damaging projects or filling the disk.
+- [X] Successful recognition replaces the baseline for both repeated occurrences,
+      retains six-second duration, and clears session Undo. Restoring the snapshot
+      recovers `東京 POST`; native SRT and VTT exports contain the recovered text.
+- [X] View/restore paragraph originals changes text only. Explicit Cut speech
+      removes the corrected group from one occurrence; one Undo restores it and
+      Redo reapplies the cut.
+- [X] Multi-clip/reused-media recognition succeeds for three segments/two media
+      IDs with a pre-existing cut and non-ASCII correction (`naïve café 東京.`).
+      All source ranges remain identical, including sourceIn 1.02; output duration
+      remains exactly 7.98 seconds. Native SRT export reflects the new baseline.
+- [X] Both generated source hashes remain unchanged:
+      `ee336d4fa59f6759c6dcc56b71d5aad80ee1fd3b1109e069b07d944b69f908b9`.
+- [ ] Additional native-only coverage: Proceed without snapshot, unsaved Save
+      completion followed by snapshot, multi-clip snapshot recovery/VTT afterward,
+      and a fresh full end-to-end walkthrough. Their underlying workflows are
+      covered by automated tests and the native checks above, but these exact
+      sequences were not completed before live testing stopped.
+- [ ] Compare real speech/video synchronization near the beginning, existing cuts
+      and end on a copied lecture. Record pre-existing export cut-padding drift
+      separately. Synthetic tones cannot establish perceptual speech alignment.
+
+See [the acceptance audit](transcript-correction-acceptance.md) for automated
+coverage, native evidence and limitations.

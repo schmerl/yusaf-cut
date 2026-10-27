@@ -190,8 +190,13 @@ a paragraph and choose **View paragraph original** to include text-hidden words.
 Review the original recognized text, then **Restore original text**. Partial
 corrected-group selections restore the whole group, as shown in the preview;
 other corrections and existing audio cuts are retained. Restoration is undoable.
-Re-transcription of corrected projects is blocked until the Phase 6 snapshot
-workflow is ready.
+Re-transcription offers **Cancel**, **Proceed**, and **Snapshot first** before
+replacing existing text. Snapshot first saves the current project (prompting for
+a path when needed), then creates a restore point containing the corrections.
+Save/snapshot failures stop the operation. Recognition stages all clips and
+commits only if the project has not changed; failure preserves existing edits.
+Successful re-transcription preserves audio cuts, establishes new originals,
+and clears session undo history. Recover earlier corrections through Snapshots.
 
 See the [transcript corrections manual checkpoint](docs/manual-transcript-corrections.md)
 for a disposable test project and suggested checks.

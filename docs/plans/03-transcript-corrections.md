@@ -1,10 +1,42 @@
 # Implementation plan: feature 3 — manual transcript corrections
 
-Status: Phases 1–5 implemented. The user verified Phase 4 editing, save/reopen,
-captions, and snapshots in 4.5.0. Two timing checks identified a repeated-source
-playback bug; the user confirmed all native retests of its 4.5.1 fix passed on
-2026-10-26. Phase 4 is complete. The user confirmed all Phase 5 native tests passed in 4.6.0. The 4.6.1
-partial-match highlight follow-up awaits native verification. Phases 6–7 remain pending.
+Status: Phases 1–6 implemented. Phase 7 implementation, documentation and release
+verification are complete for 4.7.0, with remaining native-only sign-off listed
+explicitly in the acceptance audit. The user signed
+off Phase 4 in 4.5.1 and Phase 5 in 4.6.0. See the
+[acceptance audit](../transcript-correction-acceptance.md) for evidence and limits.
+
+## Phases 6–7 checkpoint
+
+- Branch: `feature/transcript-correction-completion`; app version 4.7.0.
+- Protected replacement dialog offers Cancel, Proceed and Snapshot first, with
+  corrected-occurrence detection and explicit history/recovery semantics.
+- Snapshot first saves the captured current in-memory project (Save dialog for
+  unsaved projects), then creates `Before re-transcription`. Cancellation, save
+  failure, snapshot failure or stale project/session never starts recognition.
+- Clip results stage before one validated baseline commit. Existing cut ranges,
+  unrelated overlays and reused occurrences survive; affected originals rebuild
+  from raw recognition for each surviving segment. Forced recognition bypasses
+  caches; only raw successful full-batch results are cached after commit.
+- Project identity, reference revision and session generation guard every async
+  boundary. Recording imports share the guarded flow. Stale pause detection
+  cannot update a different project. Workflow-owned progress spans the batch.
+- Success resets session undo, matching the existing baseline-load policy. A
+  pre-transcription snapshot retains the prior corrected state across restarts.
+- Verification: 171 frontend tests (including 30 new workflow/dialog/progress
+  cases), typecheck/lint, and all 46 native library tests pass. Release build and
+  final native evidence are recorded in the acceptance audit and manual checklist.
+- Native checks passed for legacy editing, partial highlighting, Cancel, unsaved
+  Save cancellation, current-state snapshot creation, actual recognition, snapshot
+  recovery, SRT/VTT export, explicit cuts/undo/redo, and multi-clip recognition
+  preserving existing ranges and exact duration. Generated source hashes match.
+- Further live app/browser interaction stopped at the user's request. Ordinary
+  unit, integration and CLI checks remain authorized. Real-lecture synchronization
+  and unperformed native-only sequences remain explicitly unverified.
+- Native failure/race coverage uses controlled async mocks; no valuable project,
+  installed/running app, source recording or Python/MLX environment is replaced.
+- Phase 5 commit: `3550d1f`. Phase 6/release work is committed separately on the
+  branch above; no PR is created or merged.
 
 ## Phase 5 checkpoint
 
@@ -30,15 +62,15 @@ partial-match highlight follow-up awaits native verification. Phases 6–7 remai
   search is open. Typecheck/lint and all 46 native library tests pass. A native
   release app is built at `src-tauri/target/release/bundle/macos/YusafCut.app`.
 - [New native checklist](../manual-transcript-corrections.md#phase-5-native-checkpoint--460)
-  passed: the user confirmed all checks in 4.6.0 on 2026-10-26. Phase 6 remains
-  the protected re-transcription workflow.
+  passed: the user confirmed all checks in 4.6.0 on 2026-10-26. Phase 6 completion
+  is recorded above.
 - Follow-up 4.6.1: partial matching is the panel default, with strong exact-match
   highlighting and light containing-token context. Whole word remains an explicit
   option. Replacements use exact substring offsets, never the light context.
   All 141 frontend tests, typecheck and lint pass, including substring replacement,
   token context merging and Unicode boundaries. The follow-up has its own two
   pending native checks in the manual checklist.
-- Changes are in the working tree; no Phase 5 commit or publication yet.
+- Commit: `3550d1f` (includes the partial-match follow-up and Phase 4/5 sign-offs).
 
 ## Phase 4 manual feedback
 

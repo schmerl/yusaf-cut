@@ -1,11 +1,11 @@
 # Feature 3: Manual transcript corrections
 
-Status: Phases 1–5 implemented, with automated editor and model checks passing.
-The user completed the Phase 4 native checkpoint in 4.5.1 on 2026-10-26.
-The user confirmed all Phase 5 native checks passed in 4.6.0. The requested
-partial-match highlighting follow-up is implemented in 4.6.1 and awaits native
-verification. The protected re-transcription
-workflow (Phase 6) remains pending.
+Status: Phases 1–6 implemented. Phase 7 implementation, documentation and release
+verification are complete for 4.7.0, with remaining native-only checks explicitly
+recorded in the acceptance audit. The user verified the Phase 4 and Phase 5
+native checks in 4.5.1/4.6.0; the partial-match follow-up and final re-transcription walkthrough
+have separate verification records. See the [acceptance audit](../transcript-correction-acceptance.md)
+for evidence and remaining native checks.
 
 Agent handoff: [phased implementation plan](../plans/03-transcript-corrections.md).
 

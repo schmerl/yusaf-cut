@@ -326,7 +326,7 @@ Tasks:
 
 ### Phase 5 — Project save/load (Day 19–20)
 
-Manual correction Phases 2–5 now support editable-by-default text without changing
+Manual correction Phases 2–6 now support editable-by-default text without changing
 source audio ranges. Delete/Backspace/Cmd-X edit text; **Cut speech** and
 Cmd-Shift-X cut the video. Corrected phrases share a timing group, which must be
 selected in full for cutting. Click edits; Cmd-click seeks. The store owns undo,
@@ -338,7 +338,12 @@ match navigation/highlighting. Selected timing groups or whole paragraphs expose
 original recognized text and undoable restoration, including text-hidden words.
 Restoration preserves unrelated corrections and surviving EDL ranges; stale
 previews cannot apply. See [the manual checkpoint](manual-transcript-corrections.md).
-The protected re-transcription workflow remains Phase 6.
+Re-transcription offers Cancel, Proceed and Snapshot first. Snapshot first
+saves and snapshots the current corrected revision; cancellation or failure stops
+replacement. Results stage across all requested clips before a guarded commit.
+Concurrent edits/project switches invalidate the request. Success rebuilds raw
+originals for surviving ranges, preserves existing audio cuts and unaffected
+corrections, and resets session undo; snapshots provide persistent recovery.
 
 Correction-model Phase 1 adds optional, versioned segment transcript overlays.
 Original words, stable paragraph/run identity, hidden text, and anchor mappings

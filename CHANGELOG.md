@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.0] - 2026-10-26
+
+### Added
+- Protected re-transcription with Cancel, Proceed and Snapshot first. Snapshot
+  first saves the current in-memory corrections and creates a named restore point;
+  Save cancellation and save/snapshot failures stop recognition.
+- Transactional recognition across clips, with project/revision/session guards,
+  refreshed originals for surviving anchors and unchanged existing audio cuts.
+  Failure or concurrent edits preserve the current project. Unaffected media keep
+  their corrections. Successful recognition resets session undo; snapshots remain
+  the persistent recovery path.
+
+### Fixed
+- Re-transcription no longer retains old correction mappings over new words or
+  overwrites edits/a different project after asynchronous work. Recording imports
+  use the same guarded recognition flow.
+- Raw recognition caches update only after a validated full-batch commit. Forced
+  recognition bypasses caches without deleting them on a failed attempt.
+- Native per-clip completion keeps batch progress visible until commit/failure;
+  late progress and stale pause detection cannot affect a completed/new project.
+
 ## [4.6.1] - 2026-10-26
 
 ### Changed
