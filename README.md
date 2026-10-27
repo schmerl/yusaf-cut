@@ -141,7 +141,8 @@ video in YouTube Studio.
 
 ### Review retakes
 
-Open a transcribed project and select **Toolbox → Retakes**. Choose the bundled
+Open a transcribed project and click **Retakes** in the editor's lower toolbar,
+beside the magnifying-glass Find button. Choose the bundled
 MLX runtime and download its local model (about 4.6 GB), or choose **Local Ollama**
 and select an installed model. Ollama must be running on its default local port.
 Then select **Find retakes**.

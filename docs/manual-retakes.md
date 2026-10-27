@@ -15,7 +15,8 @@ cannot establish. Do not use the original recording as an editable test artifact
 
 ## Review without editing
 
-1. Select **Toolbox → Retakes**. Under **Analysis runtime**, choose **Local
+1. Click **Retakes** in the editor's lower toolbar, beside the Find button.
+   Under **Analysis runtime**, choose **Local
    Ollama**, select an installed model, and select **Find retakes**. The **Refresh
    models** button updates the list if Ollama was started after opening the
    dialog. Alternatively, choose **Bundled MLX runtime** and download its
