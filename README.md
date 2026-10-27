@@ -54,6 +54,7 @@ iteration and some rough edges around packaging.
 | Toolbar category menus for File, Capture, and Project | Complete |
 | Blocking-operation progress dialogs | Complete |
 | One-click filler word removal | Complete |
+| Reviewed retake and false-start cuts | Available for manual acceptance testing |
 | DTW word-timestamp refinement via `whisper.cpp --dtw` | Complete |
 | Cut-point pre-roll padding | Complete |
 | Timeline zoom and in/out markers | Complete |
@@ -137,6 +138,19 @@ toolbar. Choose a destination and an `.srt` or `.vtt` filename in the save
 dialog. Captions are saved separately from the video using the project's edited
 transcript and output timeline. Upload that file alongside the corresponding
 video in YouTube Studio.
+
+### Review retakes
+
+Open a transcribed project and select **Toolbox → Retakes**. On first use,
+download the local retake model (about 4.6 GB), then select **Find retakes**.
+Detection proposes nearby attempts; it does not edit the project. For each
+group, listen to **Play original**, choose the take to keep, and use **Preview
+cut** to hear the proposed joins. **Accept cut** applies the edit as one undoable
+action; **Dismiss** skips that group for this run. Save the project to keep
+accepted cuts. The model runs locally and the source recording is unchanged.
+
+See the [retakes manual test](docs/manual-retakes.md) for a full verification
+walkthrough.
 
 ### Editing model
 

@@ -1,7 +1,8 @@
 # Feature 4: Repeated phrases, retakes, and false starts
 
-Status: Requirements defined from the user's interview answers. Ready for
-implementation planning; no detector has been implemented.
+Status: Implemented on the retakes feature stack. Automated checks pass for the
+detector, cut transactions, review workflow, and native protocol. Native listening,
+export, and accuracy on representative recordings remain manual acceptance work.
 
 ## Goal
 

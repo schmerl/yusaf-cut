@@ -87,8 +87,8 @@ Three real options on Apple Silicon, ranked by likely payoff:
    `TranscriptionEngine` enum in the transcribe IPC.
 2. **Parakeet-MLX** (NVIDIA Parakeet TDT on Apple's MLX). Reports
    ~5× real-time on M2 with `large-v3`-class accuracy. Trickier to
-   bundle because MLX is Python; we'd need a sidecar that we currently
-   only scaffold for `mlx-llm`. Worth it for the speed claim alone —
+   bundle because MLX is Python; the packaged `mlx-llm` sidecar used for
+   retake analysis provides a starting point. Worth it for the speed claim alone —
    "transcribe a 90-minute interview in 60 seconds" is a sellable
    benchmark.
 3. **Whisper-large-v3** via whisper.cpp with `--flash-attn` once that
@@ -110,7 +110,7 @@ transcript editor and a coloured ribbon on the timeline rail per
 speaker. Editing the speaker name in one place updates everywhere.
 
 ### AI chapter detection (using the existing MLX-LLM sidecar) — **M**
-The sidecars/mlx-llm folder is already scaffolded. Build a `summarise`
+The sidecars/mlx-llm folder now supports retake analysis. Build a `summarise`
 command that takes the full transcript, runs Llama-3.1-8B in 4-bit
 locally, and asks for "10 chapter titles with timestamps". Insert them
 as draft chapters the user can edit. Demo gold; nobody else does this

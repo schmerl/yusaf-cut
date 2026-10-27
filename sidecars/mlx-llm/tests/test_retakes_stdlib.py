@@ -45,9 +45,6 @@ class RetakeValidationTests(unittest.TestCase):
                     validate_result([group], 4)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class RetakeProtocolTests(unittest.TestCase):
     def test_malformed_request_is_a_structured_error(self):
         from mlx_llm.retake_server import handle
@@ -71,3 +68,7 @@ class RetakeProtocolTests(unittest.TestCase):
         with patch('mlx_llm.retake_server.analyze', return_value=[]):
             response = json.loads(handle('{"id":"w","records":[],"hypotheses":[]}', '/unused', {}))
         self.assertEqual(response, {'id':'w','groups':[]})
+
+
+if __name__ == "__main__":
+    unittest.main()

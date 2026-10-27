@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Local retake and false-start detection with grouped review, original and proposed
+  audition, choice of any take, dismissal, and one-step undo for accepted cuts.
+- MLX semantic analysis using a separately downloaded, checksum-verified local
+  model. Detection and preview leave the project unchanged until acceptance.
+
 ## [4.7.0] - 2026-10-26
 
 ### Added
