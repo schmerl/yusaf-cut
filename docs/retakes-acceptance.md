@@ -6,10 +6,10 @@ Feature stack: `feature/retakes-00-feasibility` through
 ## Automated evidence
 
 - `npm run check`: TypeScript and ESLint pass.
-- `npm test -- --reporter=dot`: 206 tests pass, including retake candidate
+- `npm test -- --reporter=dot`: 207 tests pass, including retake candidate
   projection/grouping, cut transactions, review queue, UI, audition, IPC, and
   existing caption, EDL, save, and repeated-media playback coverage.
-- `npm run test:rust`: 50 tests pass, including model manifest validation,
+- `npm run test:rust`: 51 tests pass, including model manifest validation,
   malformed data and native serialization.
 - Sidecar `unittest` discovery: six retake protocol and validation tests pass.
 - The optional Ollama backend lists locally installed models, verifies the
@@ -29,6 +29,16 @@ measure precision or recall on a lecture. The model is downloaded separately,
 with SHA-256 checks from `sidecars/mlx-llm/retake-model.json`; it is not part of
 the Git tree. The prior bundled-sidecar offline smoke check passed without a
 developer Python path.
+
+The supplied 51-second raw snippet exposed a transcription prerequisite: the
+Whisper JSON contained subword tokens such as `R` + `EST` and `Se` + `at` +
+`N` + `um`, plus separate punctuation tokens. The parser now assembles these
+into timed words and retains punctuation; the raw-recognition cache namespace
+was advanced so old split-token results are not silently reused on import.
+Both installed Whisper models still omitted the opening filler, and the full
+model also omitted the nearby repeated phrase. A temporary filler-heavy prompt
+added several unsupported fillers, so it was not enabled by default. Real
+retakes absent from recognition cannot be detected from transcript text.
 
 ## Remaining acceptance
 

@@ -23,6 +23,10 @@ cannot establish. Do not use the original recording as an editable test artifact
    approximately 4.6 GB model. Cancel a detection run once, then rerun it.
 2. Check that the passage and take choices are the words you heard. False
    positives, missed retakes, and incorrect suggested takes should be noted.
+   If fillers or repeats are absent from an older transcript, use
+   **Re-Transcribe → Snapshot first** to regenerate its recognition baseline
+   with the corrected word assembly; existing saved projects are not rewritten
+   automatically.
 3. Select **Play original**. Hear the complete passage and surrounding speech.
    Choose a different take and select **Preview cut**. Hear both joins and check
    that unrelated words remain. The preview is labeled “Proposed cut — not
