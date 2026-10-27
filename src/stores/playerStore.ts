@@ -38,35 +38,40 @@ interface PlayerState {
   reset: () => void;
 }
 
-export const usePlayerStore = create<PlayerState>((set) => ({
-  currentTime: 0,
-  playing: false,
-  selectedWordIds: new Set(),
-  muted: false,
-  rate: 1.0,
-  timelineMarkIn: null,
-  timelineMarkOut: null,
-  timelineZoom: 1,
+export function createPlayerStore() {
+  return create<PlayerState>((set) => ({
+    currentTime: 0,
+    playing: false,
+    selectedWordIds: new Set(),
+    muted: false,
+    rate: 1.0,
+    timelineMarkIn: null,
+    timelineMarkOut: null,
+    timelineZoom: 1,
 
-  setCurrentTime: (t) => set({ currentTime: t }),
-  setPlaying: (p) => set({ playing: p }),
-  setSelectedWordIds: (ids) => set({ selectedWordIds: new Set(ids) }),
-  toggleMuted: () => set((s) => ({ muted: !s.muted })),
-  setRate: (r) => set({ rate: r }),
-  setTimelineRange: (markIn, markOut) => set({ timelineMarkIn: markIn, timelineMarkOut: markOut }),
-  clearTimelineRange: () => set({ timelineMarkIn: null, timelineMarkOut: null }),
-  // Wider zoom range supports the horizontal-scrolling rail introduced in v2.1.
-  // 32x lets editors land on individual words on long-form content.
-  setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(32, zoom)) }),
-  reset: () =>
-    set({
-      currentTime: 0,
-      playing: false,
-      selectedWordIds: new Set(),
-      muted: false,
-      rate: 1.0,
-      timelineMarkIn: null,
-      timelineMarkOut: null,
-      timelineZoom: 1,
-    }),
-}));
+    setCurrentTime: (t) => set({ currentTime: t }),
+    setPlaying: (p) => set({ playing: p }),
+    setSelectedWordIds: (ids) => set({ selectedWordIds: new Set(ids) }),
+    toggleMuted: () => set((s) => ({ muted: !s.muted })),
+    setRate: (r) => set({ rate: r }),
+    setTimelineRange: (markIn, markOut) =>
+      set({ timelineMarkIn: markIn, timelineMarkOut: markOut }),
+    clearTimelineRange: () => set({ timelineMarkIn: null, timelineMarkOut: null }),
+    // Wider zoom range supports the horizontal-scrolling rail introduced in v2.1.
+    // 32x lets editors land on individual words on long-form content.
+    setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(32, zoom)) }),
+    reset: () =>
+      set({
+        currentTime: 0,
+        playing: false,
+        selectedWordIds: new Set(),
+        muted: false,
+        rate: 1.0,
+        timelineMarkIn: null,
+        timelineMarkOut: null,
+        timelineZoom: 1,
+      }),
+  }));
+}
+
+export const usePlayerStore = createPlayerStore();
