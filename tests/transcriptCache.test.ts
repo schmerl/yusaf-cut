@@ -19,6 +19,11 @@ it("does not reuse v1 caches possibly polluted with corrected or partial project
   expect(readTranscriptCache(media)).toBeNull();
 });
 
+it("does not reuse v2 caches with split subwords and missing punctuation", () => {
+  localStorage.setItem(`yusafcut.recognition.v2.${media.sha256}`, JSON.stringify({ words }));
+  expect(readTranscriptCache(media)).toBeNull();
+});
+
 it("roundtrips raw recognition in the new namespace and checks the source hash", () => {
   writeTranscriptCache(media, words);
   expect(readTranscriptCache(media)).toEqual(words);
@@ -27,10 +32,10 @@ it("roundtrips raw recognition in the new namespace and checks the source hash",
 
 it("opening a corrected project leaves the raw cache untouched", async () => {
   writeTranscriptCache(media, words);
-  const before = localStorage.getItem(`yusafcut.recognition.v2.${media.sha256}`);
+  const before = localStorage.getItem(`yusafcut.recognition.v3.${media.sha256}`);
   vi.mocked(loadProject).mockResolvedValue(globalThis.structuredClone(fixture) as Project);
   await openSavedProject("/tmp/corrected.scribe");
-  expect(localStorage.getItem(`yusafcut.recognition.v2.${media.sha256}`)).toBe(before);
+  expect(localStorage.getItem(`yusafcut.recognition.v3.${media.sha256}`)).toBe(before);
   expect(readTranscriptCache(media)).toEqual(words);
 });
 

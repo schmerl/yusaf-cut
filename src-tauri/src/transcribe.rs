@@ -40,31 +40,49 @@ struct WhisperToken {
     p: f64, // probability
 }
 
-/// Parse whisper.cpp's full JSON output into our `Word` list, dropping pure
-/// whitespace/punctuation artefacts.
+/// Assemble spoken words from Whisper's subword tokens. Leading whitespace
+/// starts a word; continuation tokens and standalone punctuation belong to
+/// the preceding word. Punctuation has no extra audio range of its own.
 pub fn parse_whisper_json(json: &str) -> Result<Vec<Word>> {
     let parsed: WhisperJson = serde_json::from_str(json).context("invalid whisper JSON")?;
-    let mut words = Vec::new();
+    let mut words: Vec<Word> = Vec::new();
     for seg in parsed.transcription {
+        let mut segment_has_word = false;
+        let mut pending_prefix = String::new();
         for tok in seg.tokens {
-            let text = tok.text.trim().to_string();
+            let text = tok.text.trim();
             // Skip Whisper special tokens like <|startoftranscript|>, [BLANK_AUDIO], etc.
             if text.is_empty() || text.starts_with("<|") || text.starts_with('[') {
                 continue;
             }
-            // Skip leading-only-punctuation tokens — whisper emits these as separate atoms.
+            // Whisper often emits sentence punctuation as separate tokens.
             if text.chars().all(|c| !c.is_alphanumeric()) {
+                if let Some(previous) = words.last_mut() {
+                    previous.text.push_str(text);
+                } else {
+                    pending_prefix.push_str(text);
+                }
                 continue;
             }
             let (start_ms, end_ms) = token_offsets_ms(&seg.offsets, &tok.offsets);
-            words.push(Word {
-                id: Uuid::new_v4().to_string(),
-                text,
-                start: ms_to_sec(start_ms),
-                end: ms_to_sec(end_ms),
-                confidence: tok.p.clamp(0.0, 1.0),
-                speaker: None,
-            });
+            let starts_word = !segment_has_word
+                || tok.text.chars().next().is_some_and(char::is_whitespace);
+            if starts_word {
+                words.push(Word {
+                    id: Uuid::new_v4().to_string(),
+                    text: format!("{pending_prefix}{text}"),
+                    start: ms_to_sec(start_ms),
+                    end: ms_to_sec(end_ms),
+                    confidence: tok.p.clamp(0.0, 1.0),
+                    speaker: None,
+                });
+                pending_prefix.clear();
+            } else if let Some(previous) = words.last_mut() {
+                previous.text.push_str(text);
+                previous.end = previous.end.max(ms_to_sec(end_ms));
+                previous.confidence = previous.confidence.min(tok.p.clamp(0.0, 1.0));
+            }
+            segment_has_word = true;
         }
     }
     Ok(words)
@@ -162,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_special_and_punctuation_tokens() {
+    fn keeps_sentence_punctuation_but_drops_special_tokens() {
         let json = r#"{
             "transcription": [
               {
@@ -179,6 +197,43 @@ mod tests {
         }"#;
         let words = parse_whisper_json(json).unwrap();
         assert_eq!(words.len(), 1);
-        assert_eq!(words[0].text, "hi");
+        assert_eq!(words[0].text, "hi.");
+        assert!((words[0].end - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn joins_subwords_contractions_and_punctuation_from_real_whisper_shape() {
+        let json = r#"{
+            "transcription": [{
+                "text": " REST, we've used SeatNum. Is that required?",
+                "offsets": {"from": 20000, "to": 25500},
+                "tokens": [
+                    {"text":" R","offsets":{"from":20040,"to":20170},"p":0.87},
+                    {"text":"EST","offsets":{"from":20170,"to":20560},"p":0.99},
+                    {"text":",","offsets":{"from":20560,"to":20660},"p":0.67},
+                    {"text":" we","offsets":{"from":20660,"to":21000},"p":0.95},
+                    {"text":"'ve","offsets":{"from":21000,"to":21200},"p":0.91},
+                    {"text":" used","offsets":{"from":21200,"to":21600},"p":0.99},
+                    {"text":" Se","offsets":{"from":21600,"to":21900},"p":0.86},
+                    {"text":"at","offsets":{"from":21900,"to":22200},"p":0.93},
+                    {"text":"N","offsets":{"from":22200,"to":22300},"p":0.97},
+                    {"text":"um","offsets":{"from":22300,"to":22700},"p":0.99},
+                    {"text":".","offsets":{"from":22700,"to":23000},"p":0.99},
+                    {"text":" Is","offsets":{"from":23000,"to":23400},"p":0.96},
+                    {"text":" that","offsets":{"from":23400,"to":24000},"p":0.97},
+                    {"text":" required","offsets":{"from":24000,"to":25000},"p":0.91},
+                    {"text":"?","offsets":{"from":25000,"to":25500},"p":0.99}
+                ]
+            }]
+        }"#;
+        let words = parse_whisper_json(json).unwrap();
+        assert_eq!(
+            words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            ["REST,", "we've", "used", "SeatNum.", "Is", "that", "required?"]
+        );
+        assert!((words[0].start - 20.04).abs() < 1e-9);
+        assert!((words[0].end - 20.56).abs() < 1e-9);
+        assert!((words[3].end - 22.7).abs() < 1e-9);
+        assert!((words[6].end - 25.0).abs() < 1e-9);
     }
 }

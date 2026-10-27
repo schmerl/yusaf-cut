@@ -1,7 +1,7 @@
 import type { SourceMedia, Word } from "@/lib/edl";
 
-// v1 could contain edited project text; never reuse it as raw recognition.
-const TRANSCRIPT_CACHE_PREFIX = "yusafcut.recognition.v2.";
+// v1 could contain edited text; v2 split Whisper subwords and lost punctuation.
+const TRANSCRIPT_CACHE_PREFIX = "yusafcut.recognition.v3.";
 
 function transcriptCacheKey(media: SourceMedia): string {
   return `${TRANSCRIPT_CACHE_PREFIX}${media.sha256}`;
