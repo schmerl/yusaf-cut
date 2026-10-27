@@ -6,12 +6,17 @@ Feature stack: `feature/retakes-00-feasibility` through
 ## Automated evidence
 
 - `npm run check`: TypeScript and ESLint pass.
-- `npm test -- --reporter=dot`: 204 tests pass, including retake candidate
+- `npm test -- --reporter=dot`: 206 tests pass, including retake candidate
   projection/grouping, cut transactions, review queue, UI, audition, IPC, and
   existing caption, EDL, save, and repeated-media playback coverage.
-- `npm run test:rust`: 49 tests pass, including model manifest validation,
+- `npm run test:rust`: 50 tests pass, including model manifest validation,
   malformed data and native serialization.
 - Sidecar `unittest` discovery: six retake protocol and validation tests pass.
+- The optional Ollama backend lists locally installed models, verifies the
+  selected name at run time, requests schema-constrained JSON, and passes each
+  result through the existing span validation. A synthetic request to the local
+  Ollama API returned the required three boolean fields. Model quality varies;
+  no lecture-accuracy claim follows from this protocol check.
 - `npx tauri build --bundles app`: release application bundle built; its
   `Contents/MacOS` contains the `mlx-sidecar` executable.
 - The full sidecar `pytest` suite could not run in this environment because

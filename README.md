@@ -141,13 +141,16 @@ video in YouTube Studio.
 
 ### Review retakes
 
-Open a transcribed project and select **Toolbox → Retakes**. On first use,
-download the local retake model (about 4.6 GB), then select **Find retakes**.
+Open a transcribed project and select **Toolbox → Retakes**. Choose the bundled
+MLX runtime and download its local model (about 4.6 GB), or choose **Local Ollama**
+and select an installed model. Ollama must be running on its default local port.
+Then select **Find retakes**.
 Detection proposes nearby attempts; it does not edit the project. For each
 group, listen to **Play original**, choose the take to keep, and use **Preview
 cut** to hear the proposed joins. **Accept cut** applies the edit as one undoable
 action; **Dismiss** skips that group for this run. Save the project to keep
-accepted cuts. The model runs locally and the source recording is unchanged.
+accepted cuts. The MLX model runs locally; the Ollama option uses the selected
+model through the local Ollama service. The source recording is unchanged.
 
 See the [retakes manual test](docs/manual-retakes.md) for a full verification
 walkthrough.

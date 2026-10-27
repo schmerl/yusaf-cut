@@ -31,6 +31,10 @@ Status: Implementation underway in a gh-stack rooted at
   8B reasoning was stopped for latency. Record final runtime and memory evidence
   in the acceptance audit. Target 16 GB or greater Apple Silicon for this model;
   do not promise the earlier 3B model's 8 GB footprint.
+- The review workflow now also supports user-selected installed Ollama models
+  through the local Ollama API. This avoids the pinned MLX download when it is
+  unavailable. The same bounded hypotheses and strict result validation apply;
+  semantic quality for each Ollama model remains unmeasured on real lectures.
 - Baseline: all 171 frontend tests and all 46 native library tests pass.
 - Stack layers: `feature/retakes-00-feasibility`, then phases 01 (detector),
   02 (cut transactions), 03 (native workflow), 04 (audition), 05 (review UI), and

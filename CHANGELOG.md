@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   audition, choice of any take, dismissal, and one-step undo for accepted cuts.
 - MLX semantic analysis using a separately downloaded, checksum-verified local
   model. Detection and preview leave the project unchanged until acceptance.
+- Optional local Ollama runtime with a selector for installed models; it avoids
+  the MLX model download when an Ollama model is chosen.
 
 ## [4.7.0] - 2026-10-26
 

@@ -15,8 +15,11 @@ cannot establish. Do not use the original recording as an editable test artifact
 
 ## Review without editing
 
-1. Select **Toolbox → Retakes**. Download the approximately 4.6 GB local model
-   if prompted. Cancel a detection run once, then rerun **Find retakes**.
+1. Select **Toolbox → Retakes**. Under **Analysis runtime**, choose **Local
+   Ollama**, select an installed model, and select **Find retakes**. The **Refresh
+   models** button updates the list if Ollama was started after opening the
+   dialog. Alternatively, choose **Bundled MLX runtime** and download its
+   approximately 4.6 GB model. Cancel a detection run once, then rerun it.
 2. Check that the passage and take choices are the words you heard. False
    positives, missed retakes, and incorrect suggested takes should be noted.
 3. Select **Play original**. Hear the complete passage and surrounding speech.
