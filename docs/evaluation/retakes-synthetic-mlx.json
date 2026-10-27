@@ -1,0 +1,173 @@
+{
+  "promptVersion": 5,
+  "results": [
+    {
+      "id": "abandoned",
+      "expectedPositive": true,
+      "groups": [
+        {
+          "kind": "abandoned-start",
+          "attempts": [
+            {
+              "start": 0,
+              "end": 4,
+              "complete": false
+            },
+            {
+              "start": 8,
+              "end": 16,
+              "complete": true
+            }
+          ],
+          "markers": [
+            {
+              "start": 4,
+              "end": 8
+            }
+          ]
+        }
+      ],
+      "passed": true,
+      "raw": [
+        "{\"retake\":true,\"firstComplete\":false,\"lastComplete\":true}"
+      ],
+      "seconds": 2.716
+    },
+    {
+      "id": "correction",
+      "expectedPositive": true,
+      "groups": [
+        {
+          "kind": "spoken-correction",
+          "attempts": [
+            {
+              "start": 1,
+              "end": 2,
+              "complete": true
+            },
+            {
+              "start": 3,
+              "end": 4,
+              "complete": true
+            }
+          ],
+          "markers": [
+            {
+              "start": 2,
+              "end": 3
+            }
+          ]
+        }
+      ],
+      "passed": true,
+      "raw": [
+        "{\"retake\":true,\"firstComplete\":true,\"lastComplete\":true}"
+      ],
+      "seconds": 1.143
+    },
+    {
+      "id": "reworded",
+      "expectedPositive": true,
+      "groups": [
+        {
+          "kind": "reworded-retake",
+          "attempts": [
+            {
+              "start": 0,
+              "end": 5,
+              "complete": true
+            },
+            {
+              "start": 11,
+              "end": 19,
+              "complete": true
+            }
+          ],
+          "markers": [
+            {
+              "start": 5,
+              "end": 11
+            }
+          ]
+        }
+      ],
+      "passed": true,
+      "raw": [
+        "{\"retake\":true,\"firstComplete\":true,\"lastComplete\":true}"
+      ],
+      "seconds": 1.132
+    },
+    {
+      "id": "incomplete-last",
+      "expectedPositive": true,
+      "groups": [
+        {
+          "kind": "phrase-restart",
+          "attempts": [
+            {
+              "start": 0,
+              "end": 5,
+              "complete": true
+            },
+            {
+              "start": 9,
+              "end": 14,
+              "complete": false
+            }
+          ],
+          "markers": [
+            {
+              "start": 5,
+              "end": 9
+            }
+          ]
+        }
+      ],
+      "passed": true,
+      "raw": [
+        "{\"retake\":true,\"firstComplete\":true,\"lastComplete\":false}"
+      ],
+      "seconds": 1.159
+    },
+    {
+      "id": "emphasis",
+      "expectedPositive": false,
+      "groups": [],
+      "passed": true,
+      "raw": [
+        "{\"retake\":false,\"firstComplete\":true,\"lastComplete\":true}"
+      ],
+      "seconds": 1.134
+    },
+    {
+      "id": "elaboration",
+      "expectedPositive": false,
+      "groups": [],
+      "passed": true,
+      "raw": [
+        "{\"retake\":false,\"firstComplete\":true,\"lastComplete\":true}"
+      ],
+      "seconds": 1.19
+    },
+    {
+      "id": "terminology",
+      "expectedPositive": false,
+      "groups": [],
+      "passed": true,
+      "raw": [
+        "{\"retake\":false,\"firstComplete\":true,\"lastComplete\":true}"
+      ],
+      "seconds": 1.426
+    },
+    {
+      "id": "list",
+      "expectedPositive": false,
+      "groups": [],
+      "passed": true,
+      "raw": [
+        "{\"retake\":false,\"firstComplete\":true,\"lastComplete\":true}"
+      ],
+      "seconds": 1.16
+    }
+  ]
+}
