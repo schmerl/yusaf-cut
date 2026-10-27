@@ -29,6 +29,7 @@ function nextShuttleRate(current: number) {
 export function useKeyboardShortcuts() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented || document.querySelector("[data-retake-review]")) return;
       const target = e.target as HTMLElement | null;
       const inTextField =
         !!target &&

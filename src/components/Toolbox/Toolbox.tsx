@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { RetakeReviewDialog } from "@/components/Retakes/RetakeReviewDialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -59,6 +61,7 @@ interface ToolboxProps {
 }
 
 export function Toolbox({ onFindClick }: ToolboxProps) {
+  const [retakesOpen, setRetakesOpen] = useState(false);
   const project = useProjectStore((s) => s.project);
   const removeSilences = useProjectStore((s) => s.removeSilences);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
@@ -272,6 +275,18 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
       >
         <Search className="h-4 w-4" />
       </Button>
+
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="tool-button"
+        title="Find retakes and false starts"
+        onClick={() => setRetakesOpen(true)}
+      >
+        <RotateCcw className="h-4 w-4" /> Retakes
+      </Button>
+      <RetakeReviewDialog open={retakesOpen} onOpenChange={setRetakesOpen} />
 
       {/* Markers ▾ */}
       <DropdownMenu>
