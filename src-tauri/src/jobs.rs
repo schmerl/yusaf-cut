@@ -44,6 +44,7 @@ const MAX_HISTORY: usize = 20;
 pub enum JobKind {
     Export,
     Transcribe,
+    AnalyzeRetakes,
     DownloadModel,
     Snapshot,
 }
@@ -53,6 +54,7 @@ impl JobKind {
         match self {
             JobKind::Export => "export",
             JobKind::Transcribe => "transcribe",
+            JobKind::AnalyzeRetakes => "analyze-retakes",
             JobKind::DownloadModel => "download-model",
             JobKind::Snapshot => "snapshot",
         }

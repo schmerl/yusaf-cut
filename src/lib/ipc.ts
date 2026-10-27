@@ -222,7 +222,7 @@ export function revealInFinder(path: string): Promise<void> {
 // to eliminate the Python/MLX sidecar dependency. Restore from commit
 // 074d1d3 if needed.
 
-export type JobKind = "export" | "transcribe" | "download-model" | "snapshot";
+export type JobKind = "export" | "transcribe" | "download-model" | "snapshot" | "analyze-retakes";
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface JobSnapshot {

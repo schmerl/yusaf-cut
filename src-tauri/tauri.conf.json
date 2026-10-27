@@ -64,7 +64,8 @@
     "externalBin": [
       "binaries/whisper-cli",
       "binaries/ffmpeg",
-      "binaries/ffprobe"
+      "binaries/ffprobe",
+      "binaries/mlx-sidecar"
     ]
   },
   "plugins": {}

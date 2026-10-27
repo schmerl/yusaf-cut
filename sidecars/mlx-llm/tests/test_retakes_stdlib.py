@@ -39,3 +39,27 @@ class RetakeValidationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RetakeProtocolTests(unittest.TestCase):
+    def test_malformed_request_is_a_structured_error(self):
+        from mlx_llm.retake_server import handle
+        import json
+        response = json.loads(handle('not json', '/unused', {}))
+        self.assertIn('error', response)
+        self.assertIsNone(response['id'])
+
+    def test_model_failure_preserves_request_id(self):
+        from mlx_llm.retake_server import handle
+        from unittest.mock import patch
+        import json
+        with patch('mlx_llm.retake_server.analyze', side_effect=RuntimeError('model failed')):
+            response = json.loads(handle('{"id":"w","records":[],"hypotheses":[]}', '/unused', {}))
+        self.assertEqual(response, {'id':'w','error':'model failed'})
+
+    def test_success_cannot_return_project_edits(self):
+        from mlx_llm.retake_server import handle
+        from unittest.mock import patch
+        import json
+        with patch('mlx_llm.retake_server.analyze', return_value=[]):
+            response = json.loads(handle('{"id":"w","records":[],"hypotheses":[]}', '/unused', {}))
+        self.assertEqual(response, {'id':'w','groups':[]})

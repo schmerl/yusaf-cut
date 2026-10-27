@@ -35,6 +35,8 @@ export default [
         HTMLInputElement: "readonly",
         // Browser APIs used in YusafCut
         Event: "readonly",
+        AbortSignal: "readonly",
+        AbortController: "readonly",
         CustomEvent: "readonly",
         CSS: "readonly",
         MutationObserver: "readonly",

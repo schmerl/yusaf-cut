@@ -22,6 +22,8 @@ pub async fn cancel_job(state: State<'_, AppState>, id: String) -> Result<(), St
     // If a current export is running, kill its child too. We do this
     // unconditionally because the running-export id is owned by the export
     // command, not us, and the killed child path is harmless to call twice.
+    let is_export = state.jobs.list().await.iter().any(|job| job.id == id && job.kind == crate::jobs::JobKind::Export);
+    if !is_export { return Ok(()); }
     let mut guard = state.export.child.lock().await;
     if let Some(child) = guard.take() {
         let _ = child.kill();

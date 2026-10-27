@@ -27,7 +27,13 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    from .server import serve
+    if "--retakes" in sys.argv:
+        sys.argv.remove("--retakes")
+        from mlx_llm.retake_server import main as retake_main
+        retake_main()
+        return
+
+    from mlx_llm.server import serve
 
     try:
         serve()

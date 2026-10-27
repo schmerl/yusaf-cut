@@ -6,3 +6,5 @@ pub mod pauses;
 pub mod project;
 pub mod snapshots;
 pub mod transcribe;
+
+pub mod retakes;

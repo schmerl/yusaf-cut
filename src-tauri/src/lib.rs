@@ -58,6 +58,9 @@ pub fn run() {
             commands::misc::app_data_dir,
             commands::misc::reveal_in_finder,
             commands::pauses::detect_pauses,
+            commands::retakes::retake_model_status,
+            commands::retakes::download_retake_model,
+            commands::retakes::analyze_retake_windows,
         ])
         .setup(|app| {
             // Best-effort persistence of the jobs queue across restarts.

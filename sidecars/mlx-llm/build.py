@@ -51,6 +51,11 @@ def main() -> None:
         "--hidden-import", "mlx",
         "--hidden-import", "mlx.core",
         "--hidden-import", "mlx_lm",
+        "--hidden-import", "mlx_llm.retake_server",
+        "--hidden-import", "mlx_llm.retakes",
+        "--collect-all", "mlx",
+        "--collect-all", "mlx_lm",
+        "--paths", str(SIDECAR_DIR),
         "--hidden-import", "mlx_lm.utils",
         "--hidden-import", "transformers",
         # Entry point
