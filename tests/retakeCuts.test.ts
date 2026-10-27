@@ -48,6 +48,23 @@ describe("retake cut transactions", () => {
       last.originalAudition.end - last.originalAudition.start,
     );
   });
+  it("removes the pause leading into a shared continuation when keeping an earlier take", () => {
+    const p = speech("Use POST sorry PUT for updates.", 2);
+    const records = retakeRecords(p);
+    const candidate = validateRetakeGroups({ id: "w", records }, [
+      {
+        kind: "spoken-correction",
+        attempts: [
+          { start: 1, end: 2, complete: true },
+          { start: 3, end: 4, complete: true },
+        ],
+        markers: [{ start: 2, end: 3 }],
+      },
+    ])[0]!;
+    const plan = planRetakeCut(p, candidate, candidate.attempts[0]!.id);
+    expect(Math.max(...plan.removals.map((r) => r.end))).toBeCloseTo(8 - 0.08);
+    expect(text(plan.nextProject)).toBe("Use POST for updates.");
+  });
   it.each([0, 1, 2])("keeps take %i out of three with one atomic undo and redo", (take) => {
     const p = speech("Before. The server The server The server responds. After.");
     replaceProjectBaseline(p);

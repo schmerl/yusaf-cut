@@ -157,15 +157,17 @@ export function planRetakeCut(
       next = records[first + i + 1];
     if ((previous && previous.end > head.start) || (next && next.start < tail.end))
       fail("Word timings overlap at this join. A safe cut cannot be proposed.");
-    // Trim gaps INSIDE the group while retaining unrelated external context.
-    const start =
-      a > 0
-        ? Math.min(head.start, previous!.end + pad)
-        : Math.max(previous?.end ?? 0, head.start - pad);
-    const end =
-      i < envelope.length - 1
-        ? Math.max(tail.end, next!.start - pad)
-        : Math.min(next?.start ?? totalDuration(project), tail.end + pad);
+    // Join to surviving speech in the same recording, including the shared
+    // continuation just outside the competing spans. Do not trim into another
+    // imported recording on either side of the candidate.
+    const previousIsRelated = previous?.sequence === head.sequence;
+    const nextIsRelated = next?.sequence === tail.sequence;
+    const start = previousIsRelated
+      ? Math.min(head.start, previous.end + pad)
+      : Math.max(0, head.start - pad);
+    const end = nextIsRelated
+      ? Math.max(tail.end, next.start - pad)
+      : Math.min(totalDuration(project), tail.end + pad);
     outputCuts.push({ start, end });
     for (const entry of timeline) {
       const from = Math.max(entry.outputStart, start),
