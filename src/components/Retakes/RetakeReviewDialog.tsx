@@ -379,7 +379,7 @@ function RetakeReviewContent() {
                   Dismiss
                 </Button>
               </div>
-              {audition && originalRange && (
+              {audition && originalRange && (audition.mode === "original" || cut.plan) && (
                 <div className="h-[300px] overflow-hidden rounded-md border border-border">
                   <TimelinePlayer
                     key={audition.key}
