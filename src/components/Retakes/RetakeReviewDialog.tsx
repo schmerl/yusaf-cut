@@ -12,7 +12,14 @@ import { Progress } from "@/components/ui/progress";
 import { TimelinePlayer } from "@/components/VideoPreview/TimelinePlayer";
 import { createPlayerStore, usePlayerStore } from "@/stores/playerStore";
 import { projectSession, useProjectStore } from "@/stores/projectStore";
-import { downloadRetakeModel, retakeModelStatus, type RetakeModelStatus } from "@/lib/retakeIpc";
+import {
+  analyzeRetakeWindows,
+  downloadRetakeModel,
+  retakeModelStatus,
+  retakeOllamaModels,
+  type RetakeBackend,
+  type RetakeModelStatus,
+} from "@/lib/retakeIpc";
 import { detectRetakes, RetakeReviewRun } from "@/lib/retakeWorkflow";
 import { retakeRecords } from "@/lib/retakes";
 import { totalDuration } from "@/lib/edl";
@@ -35,12 +42,20 @@ export function RetakeReviewDialog({
 }
 function RetakeReviewContent() {
   const project = useProjectStore((s) => s.project);
+  const [backendKind, setBackendKind] = useState<RetakeBackend["kind"]>(() =>
+    localStorage.getItem("retake-backend") === "ollama" ? "ollama" : "mlx",
+  );
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaModel, setOllamaModel] = useState(
+    () => localStorage.getItem("retake-ollama-model") ?? "",
+  );
+  const [ollamaError, setOllamaError] = useState("");
   const captured = useRef(project);
   const session = useRef(projectSession());
   const alive = useRef(true);
   const task = useRef<AbortController | null>(null);
   const runRef = useRef<RetakeReviewRun | null>(null);
-  const [stage, setStage] = useState<Stage>("loading");
+  const [stage, setStage] = useState<Stage>(backendKind === "ollama" ? "ready" : "loading");
   const [model, setModel] = useState<RetakeModelStatus | null>(null);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
@@ -79,6 +94,35 @@ function RetakeReviewContent() {
         .join(" ")
     : "";
   const busy = stage === "detecting" || stage === "downloading";
+
+  function resetAnalysis() {
+    task.current?.abort();
+    runRef.current = null;
+    setRun(null);
+    setAudition(null);
+    auditionStore.getState().setPlaying(false);
+    setError("");
+    setStage("ready");
+  }
+
+  async function refreshOllamaModels() {
+    try {
+      const names = await retakeOllamaModels();
+      if (!alive.current) return;
+      setOllamaModels(names);
+      setOllamaError(names.length ? "" : "No Ollama models are installed.");
+      setOllamaModel((current) => {
+        const next = names.includes(current) ? current : (names[0] ?? "");
+        if (next) localStorage.setItem("retake-ollama-model", next);
+        return next;
+      });
+    } catch (e) {
+      if (alive.current) {
+        setOllamaModels([]);
+        setOllamaError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
 
   useEffect(() => {
     alive.current = true;
@@ -124,6 +168,10 @@ function RetakeReviewContent() {
       active = false;
     };
   }, [hasTranscript]);
+  useEffect(() => {
+    if (hasTranscript) void refreshOllamaModels();
+    // The model list is refreshed explicitly after this initial lookup.
+  }, [hasTranscript]);
 
   async function download() {
     const controller = new AbortController();
@@ -146,6 +194,10 @@ function RetakeReviewContent() {
     }
   }
   async function detect() {
+    if (backendKind === "ollama" && !ollamaModels.includes(ollamaModel)) {
+      setError("Choose an installed Ollama model before finding retakes.");
+      return;
+    }
     captured.current = useProjectStore.getState().project;
     session.current = projectSession();
     const before = captured.current,
@@ -160,7 +212,15 @@ function RetakeReviewContent() {
     setProgress(0);
     setError("");
     try {
-      const candidates = await detectRetakes(before, controller.signal, setProgress);
+      const backend: RetakeBackend =
+        backendKind === "ollama" ? { kind: "ollama", model: ollamaModel } : { kind: "mlx" };
+      const candidates = await detectRetakes(
+        before,
+        controller.signal,
+        setProgress,
+        analyzeRetakeWindows,
+        backend,
+      );
       if (!alive.current || controller.signal.aborted) return;
       if (useProjectStore.getState().project !== before || projectSession() !== generation) {
         setStage("stale");
@@ -262,8 +322,68 @@ function RetakeReviewContent() {
         <p>Transcribe the project before finding retakes.</p>
       ) : (
         <>
-          {stage === "loading" && <p role="status">Checking local retake model…</p>}
-          {model && !model.installed && !busy && (
+          <div className="space-y-3 rounded-md border border-border p-4 text-sm">
+            <label className="block font-medium" htmlFor="retake-backend">
+              Analysis runtime
+            </label>
+            <select
+              id="retake-backend"
+              className="w-full rounded-md border border-border bg-background p-2"
+              value={backendKind}
+              disabled={busy}
+              onChange={(event) => {
+                const next = event.target.value as RetakeBackend["kind"];
+                resetAnalysis();
+                setBackendKind(next);
+                localStorage.setItem("retake-backend", next);
+              }}
+            >
+              <option value="mlx">Bundled MLX runtime (download model)</option>
+              <option value="ollama">Local Ollama</option>
+            </select>
+            {backendKind === "ollama" && (
+              <div className="space-y-2">
+                <label className="block font-medium" htmlFor="retake-ollama-model">
+                  Ollama model
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    id="retake-ollama-model"
+                    className="min-w-0 flex-1 rounded-md border border-border bg-background p-2"
+                    value={ollamaModels.includes(ollamaModel) ? ollamaModel : ""}
+                    disabled={busy || ollamaModels.length === 0}
+                    onChange={(event) => {
+                      resetAnalysis();
+                      setOllamaModel(event.target.value);
+                      localStorage.setItem("retake-ollama-model", event.target.value);
+                    }}
+                  >
+                    {ollamaModels.length === 0 && <option value="">No local models found</option>}
+                    {ollamaModels.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => void refreshOllamaModels()}
+                  >
+                    Refresh models
+                  </Button>
+                </div>
+                {ollamaError && <p role="alert">{ollamaError}</p>}
+                <p className="text-muted-foreground">
+                  Uses the selected model through Ollama on this Mac. Results can vary by model.
+                </p>
+              </div>
+            )}
+          </div>
+          {backendKind === "mlx" && stage === "loading" && (
+            <p role="status">Checking local retake model…</p>
+          )}
+          {backendKind === "mlx" && model && !model.installed && !busy && (
             <div className="space-y-3 rounded-md border border-border p-4 text-sm">
               <p>
                 Download the local retake model ({(model.sizeBytes / 1e9).toFixed(1)} GB). Analysis
@@ -287,17 +407,19 @@ function RetakeReviewContent() {
           {stage === "stale" && (
             <p role="alert">The project changed. Run detection again before reviewing cuts.</p>
           )}
-          {!busy && stage !== "loading" && model?.installed && (
-            <Button variant="outline" onClick={() => void detect()}>
-              {run || stage === "stale" ? "Run detection again" : "Find retakes"}
-            </Button>
-          )}
+          {!busy &&
+            stage !== "loading" &&
+            (backendKind === "ollama" ? ollamaModels.includes(ollamaModel) : model?.installed) && (
+              <Button variant="outline" onClick={() => void detect()}>
+                {run || stage === "stale" ? "Run detection again" : "Find retakes"}
+              </Button>
+            )}
           {error && (
             <div className="space-y-2">
               <p role="alert" className="text-sm text-red-400">
                 {error}
               </p>
-              {!busy && (
+              {!busy && backendKind === "mlx" && (
                 <Button variant="outline" onClick={() => void download()}>
                   Download / repair retake model
                 </Button>

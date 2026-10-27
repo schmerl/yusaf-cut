@@ -1,9 +1,16 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ detect: vi.fn(), status: vi.fn(), download: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  detect: vi.fn(),
+  status: vi.fn(),
+  download: vi.fn(),
+  ollama: vi.fn(),
+}));
 vi.mock("@/lib/retakeIpc", () => ({
   retakeModelStatus: mocks.status,
   downloadRetakeModel: mocks.download,
+  retakeOllamaModels: mocks.ollama,
+  analyzeRetakeWindows: vi.fn(),
 }));
 vi.mock("@/lib/retakeWorkflow", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/retakeWorkflow")>()),
@@ -23,6 +30,7 @@ function GlobalShortcuts() {
   return null;
 }
 beforeEach(() => {
+  localStorage.clear();
   mocks.status.mockReset().mockResolvedValue({
     installed: true,
     sizeBytes: 4.6e9,
@@ -31,6 +39,7 @@ beforeEach(() => {
   });
   mocks.detect.mockReset();
   mocks.download.mockReset();
+  mocks.ollama.mockReset().mockResolvedValue(["qwen:8b", "gemma:12b"]);
   const p = speech("Before. The server The server The server responds. After.");
   replaceProjectBaseline(p);
   usePlayerStore.getState().reset();
@@ -54,6 +63,29 @@ async function openReview() {
   await screen.findByRole("radio", { name: "Keep take 1" });
 }
 describe("grouped retake review", () => {
+  it("uses a selected installed Ollama model without downloading MLX", async () => {
+    mocks.status.mockResolvedValue({ installed: false, sizeBytes: 4.6e9 });
+    render(<RetakeReviewDialog open onOpenChange={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Analysis runtime"), { target: { value: "ollama" } });
+    const selector = await screen.findByLabelText("Ollama model");
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: "gemma:12b" })).toBeInTheDocument(),
+    );
+    fireEvent.change(selector, { target: { value: "gemma:12b" } });
+    expect(screen.queryByRole("button", { name: "Download retake model" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Find retakes" }));
+    await waitFor(() =>
+      expect(mocks.detect).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(AbortSignal),
+        expect.any(Function),
+        expect.any(Function),
+        { kind: "ollama", model: "gemma:12b" },
+      ),
+    );
+    expect(localStorage.getItem("retake-ollama-model")).toBe("gemma:12b");
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
   it("requires transcription and treats no results as ordinary", async () => {
     const p = speech("Words.");
     p.segments[0]!.words = [];
