@@ -24,6 +24,39 @@ const text = (p: ReturnType<typeof speech>) =>
 beforeEach(() => useProjectStore.temporal.getState().clear());
 
 describe("retake cut transactions", () => {
+  it("cuts the interrupted requests and JSON starts without removing their shared context", () => {
+    const requests = speech("HTTP requests and requests [UH] responses.");
+    const requestsCandidate = validateRetakeGroups({ id: "w", records: retakeRecords(requests) }, [
+      {
+        kind: "interrupted-restart",
+        attempts: [
+          { start: 1, end: 2, complete: true },
+          { start: 3, end: 5, complete: false },
+        ],
+        markers: [],
+      },
+    ])[0]!;
+    const requestCut = planRetakeCut(
+      requests,
+      requestsCandidate,
+      requestsCandidate.attempts[0]!.id,
+    );
+    expect(text(requestCut.nextProject)).toBe("HTTP requests and responses.");
+
+    const json = speech("JSON is a JSON is common.");
+    const jsonCandidate = validateRetakeGroups({ id: "w", records: retakeRecords(json) }, [
+      {
+        kind: "interrupted-restart",
+        attempts: [
+          { start: 0, end: 3, complete: false },
+          { start: 3, end: 6, complete: true },
+        ],
+        markers: [],
+      },
+    ])[0]!;
+    const jsonCut = planRetakeCut(json, jsonCandidate, jsonCandidate.attempts[1]!.id);
+    expect(text(jsonCut.nextProject)).toBe("JSON is common.");
+  });
   it("retains shared prefix/continuation for either side of a spoken correction", () => {
     const p = speech("Use POST sorry PUT for updates.");
     const records = retakeRecords(p);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   groupRetakes,
+  hypothesisOptions,
   lexicalRetakes,
   retakeRecords,
   retakeWindows,
@@ -42,7 +43,9 @@ describe("retake analysis snapshots", () => {
             JSON.stringify(expected.attempts.map(({ start, end }) => ({ start, end }))),
         ),
       ).toBe(true);
-      expect(() => validateRetakeGroups({ id: "w", records }, proposed)).not.toThrow();
+      expect(() =>
+        validateRetakeGroups({ id: "w", records }, proposed.flatMap(hypothesisOptions)),
+      ).not.toThrow();
     }
   });
   it("is read only and preserves corrected and hidden audible groups", () => {
@@ -125,5 +128,71 @@ describe("retake analysis snapshots", () => {
     const groups = groupRetakes(records, [pair(0, 1), pair(1, 2)]);
     expect(groups).toHaveLength(1);
     expect(groups[0]!.attempts).toHaveLength(3);
+  });
+  it("offers bounded cuts for interrupted repeats without treating wording as a verdict", () => {
+    const text =
+      "HTTP requests and requests [UH] responses. JSON is a JSON is common. Should I post a post? Call it seat field seat num or seat.";
+    const w = retakeWindows(retakeRecords(speech(text)))[0]!;
+    const hypotheses = semanticHypotheses(w);
+    const words = w.records.map((r) => r.text.toLowerCase());
+    for (const anchor of ["requests", "json"])
+      expect(
+        hypotheses.some(
+          (h) => h.kind === "interrupted-restart" && words[h.attempts[0]!.start] === anchor,
+        ),
+      ).toBe(true);
+    for (const anchor of ["post", "seat"])
+      expect(
+        hypotheses.some(
+          (h) => h.kind === "interrupted-restart" && words[h.attempts[0]!.start] === anchor,
+        ),
+      ).toBe(false);
+    const requests = hypotheses.find(
+      (h) => h.kind === "interrupted-restart" && words[h.attempts[0]!.start] === "requests",
+    )!;
+    expect(hypothesisOptions(requests)).toHaveLength(1);
+    const json = hypotheses.find(
+      (h) => h.kind === "interrupted-restart" && words[h.attempts[0]!.start] === "json",
+    )!;
+    expect(
+      hypothesisOptions(json).map((o) =>
+        o.attempts.map((a) =>
+          w.records
+            .slice(a.start, a.end)
+            .map((r) => r.text)
+            .join(" "),
+        ),
+      ),
+    ).toEqual([
+      ["JSON is", "JSON is common."],
+      ["JSON is a", "JSON is common."],
+      ["JSON is a", "JSON is"],
+    ]);
+    expect(hypotheses.every((h) => hypothesisOptions(h).length <= 3)).toBe(true);
+  });
+  it("keeps a narrow verified restart when a broad sentence proposal overlaps it", () => {
+    const records = retakeRecords(speech("HTTP requests and requests responses. More."));
+    const w = { id: "w", records };
+    const narrow = validateRetakeGroups(w, [
+      {
+        kind: "interrupted-restart",
+        attempts: [
+          { start: 1, end: 2, complete: false },
+          { start: 3, end: 4, complete: false },
+        ],
+        markers: [],
+      },
+    ])[0]!;
+    const broad = validateRetakeGroups(w, [
+      {
+        kind: "abandoned-start",
+        attempts: [
+          { start: 0, end: 5, complete: false },
+          { start: 5, end: 6, complete: true },
+        ],
+        markers: [],
+      },
+    ])[0]!;
+    expect(groupRetakes(records, [broad, narrow])).toEqual([narrow]);
   });
 });

@@ -4,6 +4,7 @@ import { projectTranscript } from "./transcript";
 export type RetakeKind =
   | "word-stutter"
   | "phrase-restart"
+  | "interrupted-restart"
   | "abandoned-start"
   | "spoken-correction"
   | "reworded-retake";
@@ -32,6 +33,19 @@ export interface RawRetakeGroup {
   attempts: (RetakeSpan & { complete: boolean })[];
   markers: RetakeSpan[];
 }
+export interface RetakeHypothesis extends RawRetakeGroup {
+  alternatives?: { attempts: [RetakeSpan, RetakeSpan]; markers: RetakeSpan[] }[];
+}
+export function hypothesisOptions(h: RetakeHypothesis): RawRetakeGroup[] {
+  return [
+    { kind: h.kind, attempts: h.attempts, markers: h.markers },
+    ...(h.alternatives ?? []).map((a) => ({
+      kind: h.kind,
+      attempts: a.attempts.map((s) => ({ ...s, complete: false })),
+      markers: a.markers,
+    })),
+  ];
+}
 export interface RetakeAttempt {
   id: string;
   recordIds: string[];
@@ -54,6 +68,7 @@ export const RETAKE_WINDOW_SECONDS = 30;
 const labels: Record<RetakeKind, string> = {
   "word-stutter": "Word stutter",
   "phrase-restart": "Phrase restart",
+  "interrupted-restart": "Interrupted restart — choose the take to keep",
   "abandoned-start": "Abandoned start",
   "spoken-correction": "Spoken correction",
   "reworded-retake": "Possible reworded retake",
@@ -186,7 +201,10 @@ export function validateRetakeGroups(window: RetakeWindow, value: unknown): Reta
       envelope.every((r) => r.sequence === envelope[0]!.sequence),
       "cross-recording group",
     );
-    const suggestedAttemptId = [...attempts].reverse().find((a) => a.complete)?.id;
+    const suggestedAttemptId =
+      g.kind === "interrupted-restart"
+        ? undefined
+        : [...attempts].reverse().find((a) => a.complete)?.id;
     return {
       id: JSON.stringify(attempts.map((a) => a.recordIds)),
       kind: g.kind,
@@ -234,7 +252,7 @@ export function lexicalRetakes(window: RetakeWindow): RetakeCandidate[] {
  * Explicit restart markers also create hypotheses inside a sentence. The local
  * model verifies the relationship and completeness; it cannot change the spans.
  */
-export function semanticHypotheses(window: RetakeWindow): RawRetakeGroup[] {
+export function semanticHypotheses(window: RetakeWindow): RetakeHypothesis[] {
   const records = window.records;
   const words = records.map((r) => r.text.toLowerCase().replace(/[^\p{L}\p{N}']/gu, ""));
   const markers: RetakeSpan[] = [];
@@ -255,7 +273,7 @@ export function semanticHypotheses(window: RetakeWindow): RawRetakeGroup[] {
       i = end - 1;
     }
   }
-  const hypotheses: RawRetakeGroup[] = [];
+  const hypotheses: RetakeHypothesis[] = [];
   function add(first: RetakeSpan, last: RetakeSpan, marker?: RetakeSpan) {
     if (
       first.start >= first.end ||
@@ -300,6 +318,75 @@ export function semanticHypotheses(window: RetakeWindow): RawRetakeGroup[] {
     while (end < records.length && !/[.!?]$/u.test(records[end - 1]!.text)) end++;
     add({ start, end: marker.start }, { start: marker.end, end }, marker);
   }
+  // A restart can interrupt a sentence without an explicit correction phrase.
+  // Offer only nearby repeated starts and fixed, short span choices. The model
+  // must still decide whether this is a retake, useful wording, or uncertain.
+  const ignored = new Set([
+    "the",
+    "and",
+    "for",
+    "are",
+    "that",
+    "this",
+    "with",
+    "you",
+    "our",
+    "was",
+  ]);
+  for (let i = 0; i < words.length - 2 && hypotheses.length < 24; i++) {
+    const anchor = words[i]!;
+    if (anchor.length < 3 || ignored.has(anchor) || !records[i]!.text.trim()) continue;
+    for (let j = i + 2; j <= Math.min(i + 5, words.length - 1); j++) {
+      if (words[j] !== anchor || records[j]!.start - records[i]!.start > 8) continue;
+      if (records.slice(i, j).some((r) => /[.!?]$/u.test(r.text) || !r.text.trim())) continue;
+      let shared = 1;
+      while (shared < 4 && i + shared < j && words[i + shared] === words[j + shared]) shared++;
+      if (j - i - shared < 1 || j - i - shared > 2) continue;
+      const gap = words.slice(i + shared, j);
+      if (shared === 1 && ["a", "an", "the"].includes(gap[0]!)) continue;
+      if (gap.includes("or")) continue;
+      if (words.slice(j + shared, j + shared + 3).includes("or")) continue;
+      const end = Math.min(j + shared + 1, records.length);
+      const choices = [
+        [
+          { start: i, end: i + shared },
+          { start: j, end },
+        ],
+        ...(!gap.some((word) => ["and", "or", "but"].includes(word))
+          ? [
+              [
+                { start: i, end: j },
+                { start: j, end },
+              ],
+              [
+                { start: i, end: j },
+                { start: j, end: j + shared },
+              ],
+            ]
+          : []),
+      ].filter(
+        (c) =>
+          c[1]!.end <= records.length &&
+          records.slice(c[1]!.start, c[1]!.end).every((r) => r.text.trim()),
+      );
+      const [primary, ...alternatives] = choices;
+      if (!primary) continue;
+      hypotheses.push({
+        kind: "interrupted-restart",
+        attempts: primary.map((s) => ({ ...s, complete: false })),
+        markers: [],
+        ...(alternatives.length
+          ? {
+              alternatives: alternatives.map((attempts) => ({
+                attempts: attempts as [RetakeSpan, RetakeSpan],
+                markers: [],
+              })),
+            }
+          : {}),
+      });
+      break;
+    }
+  }
   const sentences: RetakeSpan[] = [];
   let start = 0;
   for (let i = 0; i < records.length; i++)
@@ -311,7 +398,7 @@ export function semanticHypotheses(window: RetakeWindow): RawRetakeGroup[] {
   return [...new Map(hypotheses.map((h) => [JSON.stringify(h), h])).values()].slice(0, 32);
 }
 
-/** Deduplicate identical groups, merge compatible chains, omit conflicting overlaps. */
+/** Deduplicate groups, merge compatible chains, and keep the narrowest conflicting cut. */
 export function groupRetakes(records: RetakeRecord[], input: RetakeCandidate[]): RetakeCandidate[] {
   const positions = new Map(records.map((r, i) => [r.id, i]));
   const unique = [...new Map(input.map((c) => [c.id, c])).values()];
@@ -341,12 +428,26 @@ export function groupRetakes(records: RetakeRecord[], input: RetakeCandidate[]):
       ...[...prior.envelopeIds, ...candidate.envelopeIds].map((id) => positions.get(id)!),
     );
     prior.envelopeIds = records.slice(from, to + 1).map((r) => r.id);
-    prior.suggestedAttemptId = [...attempts].reverse().find((a) => a.complete)?.id;
+    prior.suggestedAttemptId =
+      prior.kind === "interrupted-restart"
+        ? undefined
+        : [...attempts].reverse().find((a) => a.complete)?.id;
     prior.id = JSON.stringify(attempts.map((a) => a.recordIds));
   }
-  return result
-    .filter(
-      (a) => !result.some((b) => a !== b && a.envelopeIds.some((id) => b.envelopeIds.includes(id))),
+  const disjoint: RetakeCandidate[] = [];
+  for (const candidate of result.sort(
+    (a, b) =>
+      a.envelopeIds.length - b.envelopeIds.length ||
+      positions.get(a.envelopeIds[0]!)! - positions.get(b.envelopeIds[0]!)!,
+  )) {
+    if (
+      !disjoint.some((accepted) =>
+        candidate.envelopeIds.some((id) => accepted.envelopeIds.includes(id)),
+      )
     )
-    .sort((a, b) => positions.get(a.envelopeIds[0]!)! - positions.get(b.envelopeIds[0]!)!);
+      disjoint.push(candidate);
+  }
+  return disjoint.sort(
+    (a, b) => positions.get(a.envelopeIds[0]!)! - positions.get(b.envelopeIds[0]!)!,
+  );
 }

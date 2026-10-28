@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { detectRetakes, RetakeReviewRun } from "@/lib/retakeWorkflow";
-import { lexicalRetakes, retakeRecords, retakeWindows } from "@/lib/retakes";
+import {
+  hypothesisOptions,
+  lexicalRetakes,
+  retakeRecords,
+  retakeWindows,
+  semanticHypotheses,
+} from "@/lib/retakes";
 import { replaceProjectBaseline, useProjectStore, projectSession } from "@/stores/projectStore";
 import { speech } from "./helpers/retakeProject";
 
@@ -77,6 +83,41 @@ describe("read-only retake workflow and ephemeral review queue", () => {
     );
     expect(candidates).toHaveLength(1);
     expect(candidates[0]!.suggestedAttemptId).toBe(candidates[0]!.attempts[1]!.id);
+  });
+  it("accepts the two interrupted restarts while rejecting post and seat wording", async () => {
+    const p = speech(
+      "HTTP requests and requests [UH] responses. JSON is a JSON is common. Should I post a post? Call it seat field seat num or seat.",
+    );
+    const candidates = await detectRetakes(
+      p,
+      new AbortController().signal,
+      undefined,
+      async (windows) =>
+        windows.map((w) => ({
+          id: w.id,
+          groups: semanticHypotheses(w).flatMap((h) => {
+            const first = w.records[h.attempts[0]!.start]!.text.toLowerCase();
+            if (h.kind !== "interrupted-restart" || (first !== "requests" && first !== "json"))
+              return []; // keep or uncertain
+            const option = hypothesisOptions(h)[first === "json" ? 1 : 0]!;
+            return [
+              {
+                ...option,
+                attempts: option.attempts.map((a, i) => ({
+                  ...a,
+                  complete: first === "requests" ? i === 0 : i === 1,
+                })),
+              },
+            ];
+          }),
+        })),
+    );
+    expect(candidates).toHaveLength(2);
+    expect(candidates.every((c) => c.suggestedAttemptId === undefined)).toBe(true);
+    expect(candidates.map((c) => c.attempts.map((a) => a.recordIds.length))).toEqual([
+      [1, 2],
+      [3, 3],
+    ]);
   });
   it("dismisses without editing and rejects accepting a resolved or stale candidate", () => {
     const p = speech("The the server responds.");

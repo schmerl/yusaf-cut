@@ -11,11 +11,16 @@ Status: Implementation underway in a gh-stack rooted at
   records the revision and SHA-256 of every downloaded file. Model files remain
   ignored workspace artifacts; they are not committed or sent to a service.
 - Design adjustment from measured failures: direct model span extraction was
-  unreliable in both 4B and 8B fast modes. Code now forms bounded hypotheses
-  from neighboring sentences and explicit restart markers, including pairs with
-  no lexical overlap. The model returns only three booleans: retake relationship
-  and completeness of each attempt. It cannot change the proposed spans.
-  Exact lexical stutters/restarts use the independent deterministic detector.
+  unreliable in both 4B and 8B fast modes. Code forms bounded hypotheses from
+  neighboring sentences, explicit restart markers, and short interrupted
+  repetitions within a sentence. The model may select one of up to three fixed
+  span options or return keep/uncertain. It cannot invent spans. Exact adjacent
+  stutters use the independent deterministic detector. Interrupted candidates
+  require the presenter to choose the take to keep.
+- Regression examples: “requests and requests [UH] responses” and “JSON is a
+  JSON is common” reach review with safe cut choices. “Post a post” and “seat
+  field seat num or seat” are filtered as grammatical repetition and a list.
+  Cut tests verify that the retained wording remains intact.
 - The 8B semantic contract passes the initial synthetic correction, abandoned
   start, low-overlap rewording, incomplete-final-take, emphasis, elaboration,
   terminology, and list checks. This is development evidence, not measured

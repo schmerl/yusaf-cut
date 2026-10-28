@@ -2,6 +2,7 @@ import type { Project } from "./edl";
 import { analyzeRetakeWindows, type RetakeBackend, type RetakeWindowResult } from "./retakeIpc";
 import {
   groupRetakes,
+  hypothesisOptions,
   lexicalRetakes,
   retakeRecords,
   retakeWindows,
@@ -42,7 +43,7 @@ export async function detectRetakes(
   const semantic = results.flatMap((result) => {
     const window = semanticWindows.find((w) => w.id === result.id);
     if (!window) throw new Error("Unexpected retake analysis response.");
-    const proposals = semanticHypotheses(window);
+    const proposals = semanticHypotheses(window).flatMap(hypothesisOptions);
     for (const group of result.groups) {
       const signature = (g: typeof group) =>
         JSON.stringify({

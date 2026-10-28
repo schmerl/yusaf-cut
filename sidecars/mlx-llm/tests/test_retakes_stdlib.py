@@ -1,7 +1,7 @@
 """Protocol validation tests that do not load MLX or require pytest."""
 import unittest
 
-from mlx_llm.retakes import validate_result, validate_decision
+from mlx_llm.retakes import validate_result, validate_decision, hypothesis_options
 
 
 class RetakeValidationTests(unittest.TestCase):
@@ -12,9 +12,17 @@ class RetakeValidationTests(unittest.TestCase):
         ], "markers": [{"start": 2, "end": 3}]}
 
     def test_decision_cannot_supply_spans_or_nonbooleans(self):
-        for value in [{"retake": True}, {"retake": True, "firstComplete": True, "lastComplete": "yes"}, {"retake": True, "firstComplete": True, "lastComplete": True, "start": 0}]:
+        for value in [{"verdict": "retake"}, {"verdict": "retake", "option": 0, "firstComplete": True, "lastComplete": "yes"}, {"verdict": "retake", "option": 0, "firstComplete": True, "lastComplete": True, "start": 0}, {"verdict": "invented", "option": 0, "firstComplete": True, "lastComplete": True}]:
             with self.assertRaises(ValueError):
                 validate_decision(value)
+
+    def test_bounded_alternatives_cannot_invent_spans(self):
+        group = self.group()
+        group["alternatives"] = [{"attempts": [{"start": 1, "end": 2}, {"start": 3, "end": 4}], "markers": [{"start": 2, "end": 3}]}]
+        self.assertEqual(len(hypothesis_options(group, 4)), 2)
+        group["alternatives"][0]["attempts"][1]["end"] = 10
+        with self.assertRaises(ValueError):
+            hypothesis_options(group, 4)
 
     def test_valid_and_empty(self):
         self.assertEqual(validate_result([], 4), [])
