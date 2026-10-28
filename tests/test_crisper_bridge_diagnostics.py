@@ -40,6 +40,7 @@ class CrisperWhisperModel:
         self.assertEqual(len(json.loads(result.stdout)), 1)
         self.assertEqual([e["phase"] for e in events], [
             "bridge_started", "library_imported", "model_loaded",
+            "chunk_tracing_unavailable",
             "inference_started", "inference_finished", "json_written",
         ])
 

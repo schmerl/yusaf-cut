@@ -53,6 +53,9 @@ try:
     diagnostic("library_imported", elapsedSeconds=time.monotonic() - started)
     model = CrisperWhisperModel(model_size, backend="transformers")
     diagnostic("model_loaded", elapsedSeconds=time.monotonic() - started)
+    if diagnostics_path and run_id:
+        from crisperwhisper_trace import install_chunk_tracing
+        install_chunk_tracing(model, diagnostic)
     inference_started = time.monotonic()
     diagnostic("inference_started")
     result = model.transcribe(
