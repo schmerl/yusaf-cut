@@ -28,6 +28,7 @@ src-tauri/binaries/*
 # The real Mach-O binary (~6 MB) built by `npm run whisperkit:build`
 # must never be committed. build-whisperkit-cli.sh sets skip-worktree on it.
 !src-tauri/binaries/whisperkit-cli-aarch64-apple-darwin
+!src-tauri/binaries/crisperwhisper-cli-aarch64-apple-darwin
 
 # Logs
 *.log
@@ -48,6 +49,8 @@ coverage/
 sidecars/**/dist/
 sidecars/**/build/
 sidecars/**/.venv/
+sidecars/crisperwhisper/build/
+sidecars/crisperwhisper/__pycache__/
 sidecars/**/__pycache__/
 sidecars/**/*.egg-info/
 

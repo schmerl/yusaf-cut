@@ -1,7 +1,7 @@
 //! Transcription engine parsers.
 //!
 //! The actual binary invocations are in `commands::transcribe`. This module
-//! contains pure JSON parsers for whisper.cpp `--output-json-full` format.
+//! contains pure JSON parsers for whisper.cpp and CrisperWhisper output.
 //!
 //! WhisperKit was removed in v3.2.0 — restore from commit 4726d25 if needed.
 //!
@@ -12,6 +12,46 @@ use crate::edl::Word;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use uuid::Uuid;
+
+#[derive(Debug, Deserialize)]
+struct CrisperWord {
+    text: String,
+    start: f64,
+    end: f64,
+}
+
+/// Parse the bridge's word-level result without treating `[UM]` and `[UH]`
+/// as metadata. Those are spoken filler tokens in CrisperWhisper's output.
+/// CrisperWhisper permits equal start/end times for a word. Our transcript
+/// anchors require a positive interval, so preserve such words with a 1 ms
+/// placeholder interval and mark their timing confidence as unknown.
+pub fn parse_crisper_words(json: &str) -> Result<Vec<Word>> {
+    let parsed: Vec<CrisperWord> = serde_json::from_str(json).context("invalid CrisperWhisper JSON")?;
+    parsed
+        .into_iter()
+        .map(|word| {
+            if word.text.trim().is_empty()
+                || !word.start.is_finite()
+                || !word.end.is_finite()
+                || word.start < 0.0
+                || word.end < word.start
+            {
+                anyhow::bail!("invalid CrisperWhisper word or timestamp");
+            }
+            let zero_duration = word.end == word.start;
+            Ok(Word {
+                id: Uuid::new_v4().to_string(),
+                text: word.text,
+                start: word.start,
+                end: if zero_duration { word.start + 0.001 } else { word.end },
+                // The API has no calibrated confidence. Zero here marks a
+                // fabricated interval, not a judgment about the spoken word.
+                confidence: if zero_duration { 0.0 } else { 1.0 },
+                speaker: None,
+            })
+        })
+        .collect()
+}
 
 #[derive(Debug, Deserialize)]
 struct WhisperJson {
@@ -40,31 +80,49 @@ struct WhisperToken {
     p: f64, // probability
 }
 
-/// Parse whisper.cpp's full JSON output into our `Word` list, dropping pure
-/// whitespace/punctuation artefacts.
+/// Assemble spoken words from Whisper's subword tokens. Leading whitespace
+/// starts a word; continuation tokens and standalone punctuation belong to
+/// the preceding word. Punctuation has no extra audio range of its own.
 pub fn parse_whisper_json(json: &str) -> Result<Vec<Word>> {
     let parsed: WhisperJson = serde_json::from_str(json).context("invalid whisper JSON")?;
-    let mut words = Vec::new();
+    let mut words: Vec<Word> = Vec::new();
     for seg in parsed.transcription {
+        let mut segment_has_word = false;
+        let mut pending_prefix = String::new();
         for tok in seg.tokens {
-            let text = tok.text.trim().to_string();
+            let text = tok.text.trim();
             // Skip Whisper special tokens like <|startoftranscript|>, [BLANK_AUDIO], etc.
             if text.is_empty() || text.starts_with("<|") || text.starts_with('[') {
                 continue;
             }
-            // Skip leading-only-punctuation tokens — whisper emits these as separate atoms.
+            // Whisper often emits sentence punctuation as separate tokens.
             if text.chars().all(|c| !c.is_alphanumeric()) {
+                if let Some(previous) = words.last_mut() {
+                    previous.text.push_str(text);
+                } else {
+                    pending_prefix.push_str(text);
+                }
                 continue;
             }
             let (start_ms, end_ms) = token_offsets_ms(&seg.offsets, &tok.offsets);
-            words.push(Word {
-                id: Uuid::new_v4().to_string(),
-                text,
-                start: ms_to_sec(start_ms),
-                end: ms_to_sec(end_ms),
-                confidence: tok.p.clamp(0.0, 1.0),
-                speaker: None,
-            });
+            let starts_word = !segment_has_word
+                || tok.text.chars().next().is_some_and(char::is_whitespace);
+            if starts_word {
+                words.push(Word {
+                    id: Uuid::new_v4().to_string(),
+                    text: format!("{pending_prefix}{text}"),
+                    start: ms_to_sec(start_ms),
+                    end: ms_to_sec(end_ms),
+                    confidence: tok.p.clamp(0.0, 1.0),
+                    speaker: None,
+                });
+                pending_prefix.clear();
+            } else if let Some(previous) = words.last_mut() {
+                previous.text.push_str(text);
+                previous.end = previous.end.max(ms_to_sec(end_ms));
+                previous.confidence = previous.confidence.min(tok.p.clamp(0.0, 1.0));
+            }
+            segment_has_word = true;
         }
     }
     Ok(words)
@@ -108,6 +166,28 @@ fn ms_to_sec(ms: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crisper_words_preserve_fillers_repeats_and_punctuation() {
+        let words = parse_crisper_words(r#"[{"text":"[UM]","start":1.16,"end":1.28},{"text":"requests","start":8.24,"end":8.48},{"text":"requests","start":9.36,"end":9.85},{"text":"REST,","start":20.4,"end":20.66}]"#).unwrap();
+        assert_eq!(words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            vec!["[UM]", "requests", "requests", "REST,"]);
+        assert_eq!(words[2].start, 9.36);
+        assert_eq!(words[3].end, 20.66);
+        assert!(parse_crisper_words(r#"[{"text":"bad","start":2,"end":1}]"#).is_err());
+    }
+
+    #[test]
+    fn crisper_zero_duration_words_remain_anchored_and_marked_uncertain() {
+        let words = parse_crisper_words(r#"[{"text":"[UM]","start":0,"end":0},{"text":"But","start":17.7,"end":17.7},{"text":"next","start":17.7,"end":17.9}]"#).unwrap();
+        assert_eq!(words.len(), 3);
+        assert_eq!(words[0].start, 0.0);
+        assert!((words[0].end - 0.001).abs() < 1e-9);
+        assert!((words[1].end - 17.701).abs() < 1e-9);
+        assert_eq!(words[1].confidence, 0.0);
+        assert_eq!(words[2].confidence, 1.0);
+        assert!(parse_crisper_words(r#"[{"text":"bad","start":3,"end":2}]"#).is_err());
+    }
 
     #[test]
     fn parses_minimal_whisper_output() {
@@ -162,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_special_and_punctuation_tokens() {
+    fn keeps_sentence_punctuation_but_drops_special_tokens() {
         let json = r#"{
             "transcription": [
               {
@@ -179,6 +259,43 @@ mod tests {
         }"#;
         let words = parse_whisper_json(json).unwrap();
         assert_eq!(words.len(), 1);
-        assert_eq!(words[0].text, "hi");
+        assert_eq!(words[0].text, "hi.");
+        assert!((words[0].end - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn joins_subwords_contractions_and_punctuation_from_real_whisper_shape() {
+        let json = r#"{
+            "transcription": [{
+                "text": " REST, we've used SeatNum. Is that required?",
+                "offsets": {"from": 20000, "to": 25500},
+                "tokens": [
+                    {"text":" R","offsets":{"from":20040,"to":20170},"p":0.87},
+                    {"text":"EST","offsets":{"from":20170,"to":20560},"p":0.99},
+                    {"text":",","offsets":{"from":20560,"to":20660},"p":0.67},
+                    {"text":" we","offsets":{"from":20660,"to":21000},"p":0.95},
+                    {"text":"'ve","offsets":{"from":21000,"to":21200},"p":0.91},
+                    {"text":" used","offsets":{"from":21200,"to":21600},"p":0.99},
+                    {"text":" Se","offsets":{"from":21600,"to":21900},"p":0.86},
+                    {"text":"at","offsets":{"from":21900,"to":22200},"p":0.93},
+                    {"text":"N","offsets":{"from":22200,"to":22300},"p":0.97},
+                    {"text":"um","offsets":{"from":22300,"to":22700},"p":0.99},
+                    {"text":".","offsets":{"from":22700,"to":23000},"p":0.99},
+                    {"text":" Is","offsets":{"from":23000,"to":23400},"p":0.96},
+                    {"text":" that","offsets":{"from":23400,"to":24000},"p":0.97},
+                    {"text":" required","offsets":{"from":24000,"to":25000},"p":0.91},
+                    {"text":"?","offsets":{"from":25000,"to":25500},"p":0.99}
+                ]
+            }]
+        }"#;
+        let words = parse_whisper_json(json).unwrap();
+        assert_eq!(
+            words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            ["REST,", "we've", "used", "SeatNum.", "Is", "that", "required?"]
+        );
+        assert!((words[0].start - 20.04).abs() < 1e-9);
+        assert!((words[0].end - 20.56).abs() < 1e-9);
+        assert!((words[3].end - 22.7).abs() < 1e-9);
+        assert!((words[6].end - 25.0).abs() < 1e-9);
     }
 }

@@ -176,6 +176,26 @@ info "Expect 2–5 minutes on first run; subsequent runs are faster."
 # Run build.py with the venv Python so PyInstaller can find all installed deps.
 "$VENV/bin/python" "$SIDECAR_DIR/build.py"
 
+# Package the optional verbatim ASR runtime separately from MLX. Model weights
+# remain a first-use download and are not redistributed in the app.
+CRISPER_DIR="$REPO/sidecars/crisperwhisper"
+CRISPER_VENV="$CRISPER_DIR/.venv"
+if [[ ! -x "$CRISPER_VENV/bin/python" ]]; then
+  if command -v python3.11 >/dev/null 2>&1; then
+    python3.11 -m venv "$CRISPER_VENV"
+  elif command -v python3.12 >/dev/null 2>&1; then
+    python3.12 -m venv "$CRISPER_VENV"
+  else
+    die "Python 3.11 or 3.12 is required to build the CrisperWhisper sidecar."
+  fi
+fi
+"$CRISPER_VENV/bin/python" -m pip install -q -r "$CRISPER_DIR/requirements.txt" pyinstaller
+"$CRISPER_VENV/bin/python" "$CRISPER_DIR/build.py"
+CRISPER_BIN="$BINS/crisperwhisper-cli-$ARCH_SUFFIX"
+[[ -x "$CRISPER_BIN" ]] || die "CrisperWhisper sidecar build failed."
+git -C "$REPO" update-index --skip-worktree \
+    "src-tauri/binaries/crisperwhisper-cli-$ARCH_SUFFIX" 2>/dev/null || true
+
 # ── 5. Sanity-check the binary ────────────────────────────────────────────────
 header "5 / 7  Verifying sidecar binary + building missing binaries"
 

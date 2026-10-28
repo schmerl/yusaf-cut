@@ -297,8 +297,8 @@ mod tests {
             updated_at: "x".into(),
             media,
             segments: vec![
-                Segment { id: "s1".into(), media_id: "m".into(), words: vec![], source_in: 0.0, source_out: 30.0 },
-                Segment { id: "s2".into(), media_id: "m".into(), words: vec![], source_in: 40.0, source_out: 55.0 },
+                Segment { transcript: None, id: "s1".into(), media_id: "m".into(), words: vec![], source_in: 0.0, source_out: 30.0 },
+                Segment { transcript: None, id: "s2".into(), media_id: "m".into(), words: vec![], source_in: 40.0, source_out: 55.0 },
             ],
             settings: ProjectSettings { export_preset: ExportPreset::Youtube1080p, padding_ms: 80 },
             chapters: vec![],
@@ -330,6 +330,7 @@ mod tests {
             width: 1920, height: 1080, audio_sample_rate: 48000, sha256: "y".into(),
         });
         p.segments.push(Segment {
+            transcript: None,
             id: "s3".into(), media_id: "n".into(), words: vec![],
             source_in: 0.0, source_out: 5.0,
         });

@@ -25,14 +25,13 @@ import {
   exportVideo,
   importMedia,
   listModels,
-  loadProject,
   onModelDownloadProgress,
-  saveProject,
   startNativeRecording,
   stopNativeRecording,
-  transcribe,
   type ModelInfo,
   type RecordingMode,
+  type CrisperDevice,
+  type TranscriptionEngine,
   type WhisperModel,
 } from "@/lib/ipc";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -61,20 +60,24 @@ import {
   addMediaWithTranscript as buildProjectWithMedia,
   newProject,
   totalDuration,
-  type Project,
-  type Word,
 } from "@/lib/edl";
 import { buildSrt, buildVtt } from "@/lib/captions";
 import { usePlayerStore } from "@/stores/playerStore";
 import { Toolbox } from "@/components/Toolbox/Toolbox";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
 import { SnapshotsDialog } from "@/components/Toolbox/SnapshotsDialog";
+import { readTranscriptCache } from "@/lib/transcriptCache";
+import { saveProjectRevision } from "@/lib/projectSaves";
+import { projectSession } from "@/stores/projectStore";
 import {
-  cacheProjectTranscripts,
-  clearTranscriptCache,
-  readTranscriptCache,
-  writeTranscriptCache,
-} from "@/lib/transcriptCache";
+  assertTranscriptionCurrent,
+  captureTranscription,
+  correctedOccurrences,
+  runTranscription,
+  snapshotBeforeTranscription,
+  type TranscriptionRequest,
+} from "@/lib/transcriptionWorkflow";
+import { isProjectPath, openSavedProject } from "@/lib/openProject";
 
 const MODELS: { name: WhisperModel; label: string; sizeMb: number }[] = [
   { name: "tiny", label: "Tiny (fast, lower accuracy)", sizeMb: 75 },
@@ -118,35 +121,6 @@ function mediaNameFromPath(path: string, fallback = "Untitled") {
   );
 }
 
-function wordsForMedia(project: Project, mediaId: string) {
-  return project.segments
-    .filter((segment) => segment.mediaId === mediaId)
-    .flatMap((segment) => segment.words);
-}
-
-function applyTranscriptToMedia(
-  project: Project,
-  mediaId: string,
-  words: Word[],
-  force = false,
-): Project {
-  return {
-    ...project,
-    segments: project.segments.map((segment) => {
-      if (segment.mediaId !== mediaId) return segment;
-      // In normal mode skip segments that already have words; in force mode overwrite all.
-      if (!force && segment.words.length > 0) return segment;
-      return {
-        ...segment,
-        words: words.filter(
-          (word) => word.end > segment.sourceIn && word.start < segment.sourceOut,
-        ),
-      };
-    }),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 interface ToolbarProps {
   onFindClick?: () => void;
 }
@@ -161,7 +135,6 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const project = useProjectStore((s) => s.project);
   const dirty = useProjectStore((s) => s.dirty);
   const filePath = useProjectStore((s) => s.filePath);
-  const markSaved = useProjectStore((s) => s.markSaved);
 
   const transcribeProgress = useUIStore((s) => s.transcribeProgress);
   const exportingProgress = useUIStore((s) => s.exportingProgress);
@@ -177,6 +150,9 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<WhisperModel>("large-v3-turbo");
+  const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper-cpp");
+  const [crisperModel, setCrisperModel] = useState<"small" | "medium" | "large" | "turbo">("medium");
+  const [crisperDevice, setCrisperDevice] = useState<CrisperDevice>("mps");
   const [transcribeLanguage, setTranscribeLanguage] = useState("auto");
   const [transcribeTranslate, setTranscribeTranslate] = useState(false);
   const [transcribeDiarize, setTranscribeDiarize] = useState(false);
@@ -206,19 +182,33 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const unlistenDownloadRef = useRef<(() => void) | null>(null);
   /** Set to true before opening the model dialog when the user clicks Re-Transcribe. */
   const forceRetranscribeRef = useRef(false);
+  const [replacementRequest, setReplacementRequest] = useState<TranscriptionRequest | null>(null);
+  const [replacementError, setReplacementError] = useState("");
+  const [transcriptionBusy, setTranscriptionBusy] = useState(false);
+  const transcriptionBusyRef = useRef(false);
 
   // toolbarBottomRef kept for potential future use
   const toolbarBottomRef = useRef<HTMLDivElement>(null);
 
   /** True when at least one segment already has transcribed words. */
   const hasTranscript = project.segments.some((s) => s.words.length > 0);
+  const correctionCount = replacementRequest ? correctedOccurrences(replacementRequest) : 0;
 
   async function handleOpen() {
     const path = await openDialog({
+      title: "Open media or a saved project",
       multiple: false,
-      filters: [{ name: "Media", extensions: MEDIA_EXTENSIONS }],
+      filters: [
+        { name: "Media or project", extensions: [...MEDIA_EXTENSIONS, "scribe", "json"] },
+        { name: "Media", extensions: MEDIA_EXTENSIONS },
+        { name: "YusafCut project", extensions: ["scribe", "json"] },
+      ],
     });
     if (typeof path !== "string") return;
+    if (isProjectPath(path)) {
+      await openSavedProject(path);
+      return;
+    }
     setMediaLoading(true);
     try {
       const media = await importMedia(path);
@@ -265,9 +255,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       pushToast({
         title: cachedWords.length > 0 ? "Clip added with cached transcript" : "Clip added",
         description:
-          cachedWords.length > 0
-            ? media.path
-            : "Click Transcribe to generate text for this clip.",
+          cachedWords.length > 0 ? media.path : "Click Transcribe to generate text for this clip.",
       });
     } catch (err) {
       pushToast({
@@ -297,29 +285,16 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
 
   async function handleOpenProject() {
     const path = await openDialog({
+      title: "Choose the saved .scribe project folder",
       multiple: false,
-      filters: [{ name: "YusafCut project", extensions: ["scribe"] }],
+      directory: true,
     });
     if (typeof path !== "string") return;
-    setMediaLoading(true);
-    try {
-      const loaded = await loadProject(path);
-      cacheProjectTranscripts(loaded);
-      replaceProjectBaseline(loaded, { dirty: false, filePath: path });
-      resetPlayer();
-      pushToast({ title: "Project opened", description: path });
-    } catch (err) {
-      pushToast({
-        title: "Failed to open project",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setMediaLoading(false);
-    }
+    await openSavedProject(path);
   }
 
   async function ensureSelectedModelInstalled() {
+    if (selectedEngine === "crisper-whisper") return;
     const info = await listModels();
     setInstalledModels(info);
     const installed = info.find((m) => m.name === selectedModel)?.installed ?? false;
@@ -346,40 +321,19 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       replaceProjectBaseline(projectWithMedia, { dirty: true, filePath: null });
       pushToast({ title: `${label} saved`, description: media.path });
 
+      const request = captureTranscription(false, [media.id]);
+      setTranscribeProgress(0);
       await ensureSelectedModelInstalled();
-      const result = await transcribe({
-        mediaId: media.id,
-        mediaPath: media.path,
-        engine: "whisper-cpp",
-        modelName: selectedModel,
-        mediaDuration: media.duration,
+      const result = await runTranscription(request, {
+        engine: selectedEngine,
+        modelName: selectedEngine === "crisper-whisper" ? crisperModel : selectedModel,
+        device: selectedEngine === "crisper-whisper" ? crisperDevice : undefined,
         language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
-        translate: transcribeTranslate,
-        diarize: transcribeDiarize,
+        translate: selectedEngine === "whisper-cpp" && transcribeTranslate,
+        diarize: selectedEngine === "whisper-cpp" && transcribeDiarize,
       });
-      writeTranscriptCache(media, result.words);
-      replaceProjectBaseline(
-        {
-          ...projectWithMedia,
-          segments: [
-            {
-              id: crypto.randomUUID(),
-              mediaId: media.id,
-              words: result.words,
-              sourceIn: 0,
-              sourceOut: media.duration,
-            },
-          ],
-          updatedAt: new Date().toISOString(),
-        },
-        { dirty: true, filePath: null },
-      );
-      pushToast({ title: "Recording transcribed", description: `${result.words.length} words` });
-
-      // Auto-surface pauses for the recording too (best-effort, non-blocking).
-      if (result.words.length > 0) {
-        await autoDetectPauses(media.path);
-      }
+      pushToast({ title: "Recording transcribed", description: `${result.totalWords} words` });
+      if (result.totalWords > 0) await autoDetectPauses(media.path, result.project);
     } catch (err) {
       pushToast({
         title: "Recording import/transcription failed",
@@ -387,6 +341,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         variant: "destructive",
       });
     } finally {
+      setTranscribeProgress(null);
       setMediaLoading(false);
     }
   }
@@ -521,9 +476,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       );
       // If the deleted model was selected, fall back to large-v3-turbo if installed.
       if (selectedModel === name) {
-        const fallback = installedModels.find(
-          (m) => m.name !== name && m.installed,
-        );
+        const fallback = installedModels.find((m) => m.name !== name && m.installed);
         if (fallback) setSelectedModel(fallback.name as WhisperModel);
       }
       pushToast({ title: "Model removed", description: `${name} deleted from disk.` });
@@ -555,9 +508,12 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
    * never fail transcription — they are reported but swallowed.
    */
   const autoDetectPauses = useCallback(
-    async (mediaPath: string) => {
+    async (mediaPath: string, expected = useProjectStore.getState().project) => {
+      if (expected !== useProjectStore.getState().project) return;
+      const session = projectSession();
       try {
         const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
+        if (expected !== useProjectStore.getState().project || session !== projectSession()) return;
         useProjectStore.getState().setPauseTokens(pauses);
         pushToast(
           pauses.length > 0
@@ -572,107 +528,77 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     [pushToast],
   );
 
-  async function startTranscribe() {
+  function startTranscribe() {
+    if (transcriptionBusyRef.current) return;
     setModelDialogOpen(false);
-    const force = forceRetranscribeRef.current;
-    forceRetranscribeRef.current = false; // reset immediately
-
-    const mediaIds = Array.from(new Set(project.segments.map((segment) => segment.mediaId)));
-    if (mediaIds.length === 0) return;
-
-    // Show the transcription progress dialog immediately — before the first
-    // Whisper event arrives so the user sees feedback right away.
-    setTranscribeProgress(0);
-
-    if (force) {
-      pushToast({
-        title: "Re-transcribing…",
-        description: "Clearing existing transcript and starting fresh.",
-      });
-    }
-
     try {
-      // ── Step 1: download the model if it isn't on disk yet ──────────────
-      const isInstalled = installedModels.find((m) => m.name === selectedModel)?.installed ?? false;
-      if (!isInstalled) {
-        pushToast({
-          title: `Downloading ${selectedModel}…`,
-          description: "This may take a few minutes. Progress shown in the toolbar.",
-        });
-        await downloadModel("whisper-cpp", selectedModel);
-        pushToast({ title: "Model downloaded — starting transcription…" });
+      const request = captureTranscription(forceRetranscribeRef.current);
+      forceRetranscribeRef.current = false;
+      if (request.force && request.project.segments.some((s) => s.words.length)) {
+        setReplacementError("");
+        setReplacementRequest(request);
+      } else {
+        void beginTranscription(request, false);
       }
+    } catch (error) {
+      pushToast({ title: "Cannot transcribe", description: String(error), variant: "destructive" });
+    }
+  }
 
-      // ── Step 2: clear caches when re-transcribing ────────────────────────
-      let nextProject = useProjectStore.getState().project;
-      if (force) {
-        for (const mediaId of mediaIds) {
-          const media = nextProject.media[mediaId];
-          if (media) clearTranscriptCache(media);
-        }
+  async function beginTranscription(request: TranscriptionRequest, snapshotFirst: boolean) {
+    if (transcriptionBusyRef.current) return;
+    transcriptionBusyRef.current = true;
+    setTranscriptionBusy(true);
+    setReplacementError("");
+    const settings = {
+      engine: selectedEngine,
+      modelName: selectedEngine === "crisper-whisper" ? crisperModel : selectedModel,
+      device: selectedEngine === "crisper-whisper" ? crisperDevice : undefined,
+      language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
+      translate: selectedEngine === "whisper-cpp" && transcribeTranslate,
+      diarize: selectedEngine === "whisper-cpp" && transcribeDiarize,
+    };
+    try {
+      assertTranscriptionCurrent(request);
+      if (snapshotFirst && !(await snapshotBeforeTranscription(request))) {
+        setReplacementError(
+          "Save cancelled. Your corrections are unchanged; transcription has not started.",
+        );
+        return;
       }
-
-      // ── Step 3: transcribe each clip ─────────────────────────────────────
-      let totalWords = 0;
-      let transcribedClips = 0;
-      for (const mediaId of mediaIds) {
-        const media = nextProject.media[mediaId];
-        if (!media) continue;
-        const cached = force ? null : readTranscriptCache(media);
-        const existingWords = wordsForMedia(nextProject, mediaId);
-        if (!force && existingWords.length > 0) {
-          totalWords += existingWords.length;
-          continue;
-        }
-        const words =
-          cached ??
-          (
-            await transcribe({
-              mediaId,
-              mediaPath: media.path,
-              engine: "whisper-cpp",
-              modelName: selectedModel,
-              mediaDuration: media.duration,
-              language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
-              translate: transcribeTranslate,
-              diarize: transcribeDiarize,
-            })
-          ).words;
-        writeTranscriptCache(media, words);
-        nextProject = applyTranscriptToMedia(nextProject, mediaId, words, force);
-        totalWords += words.length;
-        transcribedClips++;
+      assertTranscriptionCurrent(request);
+      setReplacementRequest(null);
+      setTranscribeProgress(0);
+      if (settings.engine === "whisper-cpp" && !installedModels.find((m) => m.name === settings.modelName)?.installed) {
+        await downloadModel("whisper-cpp", settings.modelName);
+        assertTranscriptionCurrent(request);
       }
-
-      replaceProjectBaseline(nextProject, { dirty: true, filePath });
+      const result = await runTranscription(request, settings);
       pushToast({
-        title: force ? "Re-transcription complete" : "Transcription complete",
-        description:
-          transcribedClips > 0
-            ? `${totalWords} words across ${mediaIds.length} clip${mediaIds.length === 1 ? "" : "s"}`
-            : "All clips already had transcript text",
+        title: request.force ? "Re-transcription complete" : "Transcription complete",
+        description: result.transcribedClips
+          ? `${result.totalWords} words across ${result.mediaCount} ${result.mediaCount === 1 ? "clip" : "clips"}`
+          : "All clips already had transcript text",
       });
-
-      // Automatically surface pauses so the user sees inline [0.6s] badges
-      // without having to open Edit → Show pauses. Best-effort, non-blocking.
-      const primaryPath = Object.values(nextProject.media)[0]?.path;
-      if (primaryPath && totalWords > 0) {
-        await autoDetectPauses(primaryPath);
-      }
-    } catch (err) {
+      const primaryPath = Object.values(result.project.media)[0]?.path;
+      if (primaryPath && result.totalWords > 0 && result.transcribedClips > 0)
+        await autoDetectPauses(primaryPath, result.project);
+    } catch (error) {
+      setReplacementError(String(error));
       pushToast({
-        title: force ? "Re-transcription failed" : "Transcription failed",
-        description: String(err),
+        title: request.force ? "Re-transcription failed" : "Transcription failed",
+        description: String(error),
         variant: "destructive",
       });
     } finally {
-      // Always hide the progress dialog — whether we succeeded, errored, or
-      // skipped transcription entirely (all clips already had words).
       setTranscribeProgress(null);
+      transcriptionBusyRef.current = false;
+      setTranscriptionBusy(false);
     }
   }
 
   const handleSave = useCallback(async () => {
+    const session = projectSession();
     let path = filePath;
     if (!path) {
       const next = await saveDialog({
@@ -683,8 +609,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       path = next;
     }
     try {
-      await saveProject(project, path);
-      markSaved(path);
+      await saveProjectRevision(project, path, session);
       pushToast({ title: "Saved" });
     } catch (err) {
       pushToast({
@@ -693,7 +618,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         variant: "destructive",
       });
     }
-  }, [filePath, project, markSaved, pushToast]);
+  }, [filePath, project, pushToast]);
 
   const runExport = useCallback(async () => {
     const outPath = await saveDialog({
@@ -886,10 +811,11 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             className="tool-button tool-button-primary"
             title={
               hasTranscript
-                ? "Clear existing transcript and re-run Whisper from scratch"
+                ? "Review snapshot options before replacing transcript text"
                 : "Transcribe audio with Whisper"
             }
             onClick={hasTranscript ? handleReTranscribe : handleTranscribe}
+            disabled={transcriptionBusy}
           >
             <MicVocal className="h-4 w-4" />
             {hasTranscript ? "Re-Transcribe" : "Transcribe"}
@@ -990,6 +916,58 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={replacementRequest !== null}
+        onOpenChange={(open) => {
+          if (!open && !transcriptionBusy) setReplacementRequest(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Replace existing transcript?</DialogTitle>
+            <DialogDescription>
+              New recognition will replace transcript text and originals for all current clips,
+              including {correctionCount} corrected{" "}
+              {correctionCount === 1 ? "occurrence" : "occurrences"}. Existing audio cuts stay in
+              place. Successful transcription resets session undo history. A snapshot preserves the
+              corrections for later recovery. Snapshot first saves your current project before
+              creating the restore point.
+            </DialogDescription>
+          </DialogHeader>
+          {replacementError && (
+            <p role="alert" className="text-sm text-destructive">
+              {replacementError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={transcriptionBusy}
+              onClick={() => setReplacementRequest(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={transcriptionBusy}
+              onClick={() =>
+                replacementRequest && void beginTranscription(replacementRequest, false)
+              }
+            >
+              Proceed
+            </Button>
+            <Button
+              disabled={transcriptionBusy}
+              onClick={() =>
+                replacementRequest && void beginTranscription(replacementRequest, true)
+              }
+            >
+              {transcriptionBusy ? "Preparing snapshot…" : "Snapshot first"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={modelDialogOpen} onOpenChange={setModelDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -998,20 +976,30 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             </DialogTitle>
             <DialogDescription>
               {forceRetranscribeRef.current
-                ? "This will clear the existing transcript and re-run Whisper from scratch."
+                ? "Choose recognition settings, then review the options for protecting existing text."
                 : "Choose an engine, model, and language. Larger models are more accurate but slower."}
             </DialogDescription>
           </DialogHeader>
 
-          {/* ── Engine info ── */}
+          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+            Transcription engine
+            <select
+              className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+              value={selectedEngine}
+              onChange={(event) => setSelectedEngine(event.target.value as TranscriptionEngine)}
+            >
+              <option value="whisper-cpp">Whisper.cpp · Core ML</option>
+              <option value="crisper-whisper">CrisperWhisper 2 · verbatim</option>
+            </select>
+          </label>
           <p className="text-xs text-muted-foreground rounded-md border border-border px-3 py-2">
-            <span className="font-semibold text-foreground">whisper.cpp · Core ML</span>
-            {" "}— runs 100% locally with Apple Silicon acceleration. Tight word-level
-            timestamps for accurate video/text sync.
+            {selectedEngine === "crisper-whisper"
+              ? "Preserves audible fillers and repeats. Runs locally; the model downloads on first use. Model weights have a non-commercial research license."
+              : "Runs locally with Apple Silicon acceleration and word-level timestamps."}
           </p>
 
           {/* ── Model list ── */}
-          <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
+          {selectedEngine === "whisper-cpp" ? <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
             {MODELS.map((m) => {
               const installed = installedModels.find((i) => i.name === m.name)?.installed ?? false;
               const isDownloading = downloadingModel === m.name;
@@ -1048,7 +1036,9 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                           size="sm"
                           variant="ghost"
                           className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          disabled={isDeleting || downloadingModel !== null || transcribeProgress !== null}
+                          disabled={
+                            isDeleting || downloadingModel !== null || transcribeProgress !== null
+                          }
                           title="Remove this model from disk"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1074,9 +1064,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                         }}
                       >
                         <Download className="h-3 w-3" />
-                        {m.sizeMb >= 1000
-                          ? `${(m.sizeMb / 1000).toFixed(1)} GB`
-                          : `${m.sizeMb} MB`}
+                        {m.sizeMb >= 1000 ? `${(m.sizeMb / 1000).toFixed(1)} GB` : `${m.sizeMb} MB`}
                       </Button>
                     )}
                   </div>
@@ -1091,7 +1079,35 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                 </div>
               );
             })}
-          </div>
+          </div> : <div className="grid gap-3 rounded-md border border-border p-3">
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              CrisperWhisper model
+              <select
+                className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                value={crisperModel}
+                onChange={(event) => setCrisperModel(event.target.value as typeof crisperModel)}
+              >
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+                <option value="turbo">Turbo</option>
+              </select>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              The first run can take several minutes while the local model downloads.
+            </p>
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              CrisperWhisper processing
+              <select
+                className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                value={crisperDevice}
+                onChange={(event) => setCrisperDevice(event.target.value as CrisperDevice)}
+              >
+                <option value="mps">Apple GPU (MPS) · faster on supported Macs</option>
+                <option value="cpu">CPU · compatibility option</option>
+              </select>
+            </label>
+          </div>}
 
           {/* ── Language / options ── */}
           <div className="grid gap-3 rounded-md border border-border p-3">
@@ -1111,7 +1127,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             </label>
 
             {/* translate + diarize */}
-            <div className="flex flex-col gap-2">
+            {selectedEngine === "whisper-cpp" && <div className="flex flex-col gap-2">
               <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <input
                   type="checkbox"
@@ -1133,12 +1149,10 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                 />
                 <span>
                   <span className="font-medium">Speaker diarisation</span>
-                  <span className="ml-1 text-muted-foreground">
-                    — label who is speaking
-                  </span>
+                  <span className="ml-1 text-muted-foreground">— label who is speaking</span>
                 </span>
               </label>
-            </div>
+            </div>}
           </div>
 
           <DialogFooter>
@@ -1153,7 +1167,8 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
               onClick={startTranscribe}
               disabled={
                 downloadingModel !== null ||
-                !installedModels.find((m) => m.name === selectedModel)?.installed
+                (selectedEngine === "whisper-cpp" &&
+                  !installedModels.find((m) => m.name === selectedModel)?.installed)
               }
               variant={forceRetranscribeRef.current ? "destructive" : "default"}
             >

@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.0] - 2026-10-26
+
+### Added
+- Protected re-transcription with Cancel, Proceed and Snapshot first. Snapshot
+  first saves the current in-memory corrections and creates a named restore point;
+  Save cancellation and save/snapshot failures stop recognition.
+- Transactional recognition across clips, with project/revision/session guards,
+  refreshed originals for surviving anchors and unchanged existing audio cuts.
+  Failure or concurrent edits preserve the current project. Unaffected media keep
+  their corrections. Successful recognition resets session undo; snapshots remain
+  the persistent recovery path.
+
+### Fixed
+- Re-transcription no longer retains old correction mappings over new words or
+  overwrites edits/a different project after asynchronous work. Recording imports
+  use the same guarded recognition flow.
+- Raw recognition caches update only after a validated full-batch commit. Forced
+  recognition bypasses caches without deleting them on a failed attempt.
+- Native per-clip completion keeps batch progress visible until commit/failure;
+  late progress and stale pause detection cannot affect a completed/new project.
+
+## [4.6.1] - 2026-10-26
+
+### Changed
+- Transcript search defaults to partial matches. The exact substring is strongly
+  highlighted with lighter shading around the containing token. Whole word is
+  explicitly labeled; replacement still affects only the exact matched text.
+
+## [4.6.0] - 2026-10-26
+
+### Added
+- Contextual transcript search across word records and corrected groups, with
+  current/next/previous matches, Unicode whole-word and case options, and model
+  highlights. Replace current and Replace all preserve audio and support undo;
+  invalid or stale batches leave the project unchanged.
+- Original recognized-text inspection and restoration for selected timing groups
+  or a paragraph, including hidden words after save/reopen. Restoration preserves
+  unrelated corrections and existing cuts; changed projects invalidate previews.
+
+### Changed
+- Search-match and filler removal controls explicitly cut speech. Matching speech
+  uses the same projected search results and whole-timing-group cut validation.
+
+## [4.5.1] - 2026-10-26
+
+### Fixed
+- **Repeated-source playback timing** — retain the selected output segment
+  when mapping native video frames back to the edited timeline. Seeking to a
+  later occurrence no longer jumps to the first matching source range. Playback
+  advances in output order through repeated clips and stops at the output end.
+
+## [4.5.0] - 2026-10-26
+
+### Added
+- **Editable transcript (Phases 2–4)** — type directly to correct words,
+  capitalization, punctuation, and phrases without changing the audio timeline.
+  Hidden words retain their audio anchors; spoken paragraphs cannot become empty.
+- **Explicit Cut speech** button and Cmd-Shift-X shortcut. Corrected timing groups
+  must be selected in full; ordinary text deletion and Cmd-X never cut audio.
+- Output-order phrase highlighting, paragraph timestamps, corrected SRT/VTT
+  captions, grouped typing history, atomic correction/cut undo, and stale-save
+  protection with serialized writes.
+
+### Changed
+- Click places the caret; Cmd-click seeks without changing playing/paused state.
+  Pause removal is an explicit control rather than a transcript-click action.
+- Existing cut/silence operations retain correction metadata or report when a
+  proposed cut would split a corrected group.
+- Re-transcribing a project with transcript overlays is temporarily blocked
+  until Phase 6 supplies the snapshot-protected replacement workflow. Original-
+  text inspection/restoration UI and contextual search UI remain for Phase 5.
+
+## [4.4.0] - 2026-10-26
+
+### Added
+- **Transcript correction foundations (Phase 1)** — optional occurrence-scoped
+  originals, paragraphs, corrected text runs, and audio-anchor mappings;
+  deterministic legacy normalization and a pure output-time projection.
+- Rust validation and save/load/snapshot round trips for correction metadata.
+  The editor remains read-only; editing operations and UI follow in later phases.
+
+### Fixed
+- Opening projects no longer writes possibly edited text into the shared
+  recognition cache. Raw recognition uses a fresh cache namespace; old caches
+  are ignored rather than reused as original recognition output.
+
+## [4.3.2] - 2026-10-26
+
+### Fixed
+- **Reopen saved projects** — the toolbar Open action recognizes `.scribe`
+  project folders and their `project.json` files instead of probing them as media.
+  File → Open Project selects the bundle directory directly; drag-and-drop uses
+  the same project loader. Reopening the JSON keeps the containing bundle as the
+  save/snapshot destination and restores existing edits and transcripts.
+
+## [4.3.1] - 2026-10-26
+
+### Fixed
+- **Caption export permission** — allow the text-file write command used by the
+  Captions button so SRT and VTT exports can be saved to the destination chosen
+  in the native save dialog. No additional filesystem directory scopes are granted.
+
 ## [4.3.0] - 2026-06-05
 
 ### Added

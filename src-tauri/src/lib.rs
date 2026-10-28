@@ -17,6 +17,7 @@ pub mod recording_state;
 pub mod smart_cut;
 pub mod snapshots;
 pub mod transcribe;
+pub mod transcript;
 
 /// Shared application state passed into every Tauri command.
 #[derive(Default)]
@@ -40,6 +41,7 @@ pub fn run() {
             commands::media::start_native_recording,
             commands::media::stop_native_recording,
             commands::transcribe::transcribe,
+            commands::transcribe::record_transcription_application,
             commands::transcribe::list_models,
             commands::transcribe::download_model,
             commands::transcribe::delete_model,

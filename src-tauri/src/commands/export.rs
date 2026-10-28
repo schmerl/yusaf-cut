@@ -899,6 +899,7 @@ mod tests {
             media,
             segments: vec![
                 Segment {
+                    transcript: None,
                     id: "s1".into(),
                     media_id: "m".into(),
                     words: vec![Word {
@@ -913,6 +914,7 @@ mod tests {
                     source_out: 2.0,
                 },
                 Segment {
+                    transcript: None,
                     id: "s2".into(),
                     media_id: "m".into(),
                     words: vec![],

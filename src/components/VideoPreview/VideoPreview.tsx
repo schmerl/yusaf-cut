@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   computeTimeline,
-  nextSurvivingSegment,
   outputTimeToSource,
   sourceTimeToOutput,
   totalDuration,
@@ -89,12 +88,16 @@ export function VideoPreview() {
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [loadMessage, setLoadMessage] = useState<string>("");
   const [activeMediaId, setActiveMediaId] = useState<string | null>(() => firstMediaId(project));
+  // The same source range may occur repeatedly in the output timeline.
+  const playbackSegmentRef = useRef<string | null>(null);
   const pendingSeekRef = useRef<{ sourceTime: number; outputTime: number; play: boolean } | null>(
     null,
   );
 
   const fallbackMediaPath = firstMediaPath(project);
-  const mediaPath = activeMediaId ? (project.media[activeMediaId]?.path ?? null) : fallbackMediaPath;
+  const mediaPath = activeMediaId
+    ? (project.media[activeMediaId]?.path ?? null)
+    : fallbackMediaPath;
   const src = mediaPath ? convertFileSrc(mediaPath) : null;
   const outputDuration = totalDuration(project);
   const hasTranscriptWords = hasWords(project);
@@ -141,7 +144,8 @@ export function VideoPreview() {
   }, [setPlaying, src]);
 
   useEffect(() => {
-    const desiredMediaId = outputTimeToSource(project, currentTime)?.segment.mediaId ?? firstMediaId(project);
+    const desiredMediaId =
+      outputTimeToSource(project, currentTime)?.segment.mediaId ?? firstMediaId(project);
     if (desiredMediaId && !project.media[activeMediaId ?? ""]) {
       setActiveMediaId(desiredMediaId);
     }
@@ -153,6 +157,7 @@ export function VideoPreview() {
     const pending = pendingSeekRef.current;
     playIntentRef.current = pending?.play ?? false;
     if (!pending) {
+      playbackSegmentRef.current = null;
       setCurrentTime(0);
       setPlaying(false);
     } else {
@@ -206,6 +211,7 @@ export function VideoPreview() {
 
       const mapped = outputTimeToSource(project, clamped);
       if (mapped) {
+        playbackSegmentRef.current = mapped.segment.id;
         const mediaId = mapped.segment.mediaId;
         if (mediaId !== activeMediaId) {
           pendingSeekRef.current = {
@@ -224,6 +230,7 @@ export function VideoPreview() {
       const timeline = computeTimeline(project);
       if (timeline.length > 0) {
         const last = timeline[timeline.length - 1]!;
+        playbackSegmentRef.current = last.segmentId;
         if (last.mediaId !== activeMediaId) {
           pendingSeekRef.current = {
             sourceTime: last.sourceOut,
@@ -244,47 +251,60 @@ export function VideoPreview() {
   // when available; falling back to `el.currentTime` (which can lag a frame).
   // Passing it explicitly removes one source of jitter in the word/timeline
   // sync — the worst-case error is now sub-millisecond instead of ~16ms.
-  const syncPlaybackClock = useCallback((precise?: number) => {
-    const el = videoRef.current;
-    if (!el || scrubbing) return;
-    const mediaId = activeMediaId ?? firstMediaId(project);
-    if (!mediaId) return;
+  const syncPlaybackClock = useCallback(
+    (precise?: number) => {
+      const el = videoRef.current;
+      if (!el || scrubbing) return;
+      const mediaId = activeMediaId ?? firstMediaId(project);
+      if (!mediaId) return;
 
-    const srcTime = precise ?? el.currentTime;
+      const srcTime = precise ?? el.currentTime;
 
-    if (!hasTimeline(project)) {
-      setCurrentTime(srcTime);
-      return;
-    }
+      if (!hasTimeline(project)) {
+        setCurrentTime(srcTime);
+        return;
+      }
 
-    const timeline = computeTimeline(project);
-    const entry = timeline.find(
-      (e) => e.mediaId === mediaId && srcTime >= e.sourceIn && srcTime < e.sourceOut,
-    );
+      if (el.seeking) return; // Ignore an old frame while a new output seek is pending.
+      const timeline = computeTimeline(project);
+      const outputNow = usePlayerStore.getState().currentTime;
+      let index = timeline.findIndex((e) => e.segmentId === playbackSegmentRef.current);
+      if (index < 0 || timeline[index]!.mediaId !== mediaId) {
+        index = timeline.findIndex(
+          (e) => e.mediaId === mediaId && outputNow >= e.outputStart && outputNow < e.outputEnd,
+        );
+      }
+      if (index < 0) return;
+      const entry = timeline[index]!;
+      playbackSegmentRef.current = entry.segmentId;
 
-    if (entry) {
-      setCurrentTime(entry.outputStart + (srcTime - entry.sourceIn));
-      return;
-    }
+      if (srcTime >= entry.sourceIn && srcTime < entry.sourceOut) {
+        setCurrentTime(entry.outputStart + srcTime - entry.sourceIn);
+        return;
+      }
+      if (srcTime < entry.sourceIn) {
+        // An initial play after loading a trimmed project starts the native file
+        // at zero; skip the removed prefix instead of playing deleted speech.
+        const resume = playIntentRef.current || usePlayerStore.getState().playing;
+        seekToOutputTime(entry.outputStart, { play: resume });
+        if (resume) playVideo();
+        return;
+      }
 
-    const outputNow = usePlayerStore.getState().currentTime;
-    const nextTimelineEntry = timeline.find((e) => e.outputStart >= outputNow - 0.05);
-    if (nextTimelineEntry) {
-      seekToOutputTime(nextTimelineEntry.outputStart + 0.001);
-      return;
-    }
-
-    const next = nextSurvivingSegment(project, mediaId, srcTime);
-    if (next && next.mediaId === mediaId) {
-      const mapped = sourceTimeToOutput(project, mediaId, next.sourceIn);
-      if (mapped) setCurrentTime(mapped.outputTime);
-      el.currentTime = next.sourceIn;
-      return;
-    }
-
-    el.pause();
-    setPlaying(false);
-  }, [activeMediaId, project, scrubbing, seekToOutputTime, setCurrentTime, setPlaying]);
+      // Advance by OUTPUT occurrence, not by source time or media ID. This also
+      // rewinds the native video when the next occurrence repeats this source.
+      const next = timeline[index + 1];
+      if (next) {
+        const resume = playIntentRef.current || usePlayerStore.getState().playing;
+        seekToOutputTime(next.outputStart, { play: resume });
+        if (resume && next.mediaId === mediaId) playVideo();
+        return;
+      }
+      setCurrentTime(entry.outputEnd);
+      pauseVideo();
+    },
+    [activeMediaId, project, scrubbing, seekToOutputTime, setCurrentTime, pauseVideo, playVideo],
+  );
 
   // ── Drive play/pause state from store ────────────────────────────────────
   useEffect(() => {
@@ -378,6 +398,7 @@ export function VideoPreview() {
     const onPause = () => setPlaying(false);
 
     el.addEventListener("timeupdate", onTimeUpdate);
+    el.addEventListener("ended", onTimeUpdate);
     el.addEventListener("loadedmetadata", onLoadedMetadata);
     el.addEventListener("canplay", onCanPlay);
     el.addEventListener("waiting", onWaiting);
@@ -386,6 +407,7 @@ export function VideoPreview() {
     el.addEventListener("pause", onPause);
     return () => {
       el.removeEventListener("timeupdate", onTimeUpdate);
+      el.removeEventListener("ended", onTimeUpdate);
       el.removeEventListener("loadedmetadata", onLoadedMetadata);
       el.removeEventListener("canplay", onCanPlay);
       el.removeEventListener("waiting", onWaiting);
@@ -427,7 +449,10 @@ export function VideoPreview() {
       const ce = e as CustomEvent<{ time: number; play?: boolean }>;
       const wantsPlay = ce.detail.play && !editLocked();
       seekToOutputTime(ce.detail.time, { play: wantsPlay });
-      if (wantsPlay && activeMediaId === outputTimeToSource(project, ce.detail.time)?.segment.mediaId) {
+      if (
+        wantsPlay &&
+        activeMediaId === outputTimeToSource(project, ce.detail.time)?.segment.mediaId
+      ) {
         playVideo();
       }
     }

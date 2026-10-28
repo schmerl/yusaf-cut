@@ -44,6 +44,76 @@ This document explains how the code maps to the spec at the repo root.
 
 ## The EDL contract
 
+Playback tracks the selected segment occurrence separately from native media
+time. Reused source ranges have identical media IDs/source times but distinct
+output positions. VideoPreview retains the occurrence chosen by output seeking
+and advances by timeline order at segment/media end; it must not pick the first
+matching source range when processing a native frame or time-update event.
+
+### Transcript correction model and editor (Phases 1–6)
+
+Segments optionally carry versioned `transcript` metadata: occurrence ID,
+original word anchors, stable blocks, and editable text runs. Audio remains
+defined by `segment.words` and the EDL ranges. `src/lib/transcript.ts` provides
+explicit, pure legacy normalization and an output-order projection with display
+offsets and source/output timing. The editor and captions consume that projection.
+Native save/load and snapshot boundaries validate and preserve overlays.
+Project loading never seeds the raw-recognition cache with saved project text.
+
+See [the model design and Phase 2 integration obligations](plans/03-transcript-model-design.md).
+
+`src/lib/transcriptEdits.ts` supplies immutable text replacement, atomic batches,
+paragraph split/join, original restoration primitives, and occurrence-scoped
+speech cuts. EDL cut/split operations reconcile retained overlays and reject
+partial corrected-group cuts. Normalized overlays are materialized at the first
+text operation, not merely by opening an old project.
+
+The TipTap document uses stable paragraph IDs and plain text, with projected
+decorations for timing groups. Local transactions are validated before entering
+the project store. IME composition stays in a draft editor document until it
+can be validated; autosave and export see the last valid project. Echoed local
+commits update decorations without replacing the document/caret. External
+undo/load/cuts rebuild from the model and restore a logical paragraph/offset.
+Playback decorations cache their projected block lookup for the current project.
+
+`src/lib/transcriptSearch.ts` finds nonoverlapping literal matches in projected
+paragraphs, in output order. UTF-16 block offsets drive counts, contextual
+navigation, ProseMirror search decorations, and replacement/cut actions. Unicode
+letters, combining marks, numbers and connector punctuation define whole-word
+boundaries; case-insensitive matching uses Unicode simple folding without locale
+expansion or normalization. Regex syntax and replacement substitutions are literal.
+Batches capture one project revision and commit once or fail without mutation.
+The panel defaults to partial matching; Whole word is opt-in. Search decorations
+shade containing Unicode tokens lightly and exact matched offsets strongly.
+Overlapping token contexts merge without changing match counts or replacement
+ranges; corrected audio timing groups can contain several displayed tokens.
+Original-text inspection captures the revision and selected timing groups;
+restoration expands partial groups explicitly, preserves unmatched runs and cuts,
+and supports whole-paragraph recovery of hidden text. Stale previews cannot apply.
+
+Zundo is the sole committed history: successive typing within 800ms can share
+one checkpoint, while explicit cuts/batches/restores are atomic. Delayed history
+capture was removed. `src/lib/projectSaves.ts` serializes native writes and
+acknowledges only the saved project reference/session, so a late save cannot mark
+newer edits or a different opened project clean. Undo/redo recomputes dirty state
+against the acknowledged saved revision.
+
+`src/lib/transcriptionWorkflow.ts` captures project reference, session generation,
+selected media IDs and force mode. Its snapshot preflight serializes a save of
+that exact in-memory revision, then snapshots it. Save cancellation/failure,
+snapshot failure or stale project/session prevents recognition. Raw clip results
+are staged separately and validated before one baseline replacement. Affected
+segments rebuild originals/blocks from surviving raw anchors; unrelated segments
+retain their overlays and source ranges. Forced recognition bypasses existing
+caches; cache writes occur only after the full batch commits and contain only raw
+successful recognition. Repeated occurrences are updated independently within
+their retained ranges. Session undo resets on success, consistently with project
+load; the pre-transcription snapshot is the persistent recovery mechanism.
+Recording imports use this same guarded recognition path. Pause detection checks
+its captured project/session before applying asynchronous results. Native
+per-clip progress completion no longer hides the batch progress dialog; the
+workflow closes it after validation/commit or failure and ignores late events.
+
 Everything important happens through `Project`:
 
 ```ts
@@ -71,6 +141,19 @@ type Project = {
 EDL operation.
 
 ## UI loading pattern
+
+### Project opening
+
+`src/lib/openProject.ts` provides the shared saved-project loader used by the
+toolbar Open action, File → Open Project, and drag-and-drop. Project paths are
+identified before media import, so `.scribe` directories and their `project.json`
+files bypass FFprobe. File → Open Project uses a native directory picker.
+The loader restores the project baseline, clears stale pause/playback state,
+and records the containing bundle as `filePath`, including when the selected
+input was the internal JSON file. Autosave and snapshots therefore continue
+to operate on the bundle directory.
+
+### Progress indicators
 
 Every operation that blocks the UI **must** show a progress indicator. The
 `uiStore` tracks five loader states:

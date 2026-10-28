@@ -326,6 +326,37 @@ Tasks:
 
 ### Phase 5 — Project save/load (Day 19–20)
 
+Manual correction Phases 2–6 now support editable-by-default text without changing
+source audio ranges. Delete/Backspace/Cmd-X edit text; **Cut speech** and
+Cmd-Shift-X cut the video. Corrected phrases share a timing group, which must be
+selected in full for cutting. Click edits; Cmd-click seeks. The store owns undo,
+while autosave writes are serialized and revision/session checked. Captions use
+corrected display text; original text remains in project/snapshot metadata.
+Contextual search matches literal phrases within projected paragraphs and offers
+Replace current, atomic Replace all, case/Unicode whole-word options, and current
+match navigation/highlighting. Selected timing groups or whole paragraphs expose
+original recognized text and undoable restoration, including text-hidden words.
+Restoration preserves unrelated corrections and surviving EDL ranges; stale
+previews cannot apply. See [the manual checkpoint](manual-transcript-corrections.md).
+Re-transcription offers Cancel, Proceed and Snapshot first. Snapshot first
+saves and snapshots the current corrected revision; cancellation or failure stops
+replacement. Results stage across all requested clips before a guarded commit.
+Concurrent edits/project switches invalidate the request. Success rebuilds raw
+originals for surviving ranges, preserves existing audio cuts and unaffected
+corrections, and resets session undo; snapshots provide persistent recovery.
+
+Correction-model Phase 1 adds optional, versioned segment transcript overlays.
+Original words, stable paragraph/run identity, hidden text, and anchor mappings
+round-trip through native save/load and gzip snapshots. The outer project format
+remains version 1; unsupported project or overlay versions are rejected. Older
+binaries may drop new fields on save. See [the model design](plans/03-transcript-model-design.md).
+
+Saved `.scribe` projects are directories. **File → Open Project** selects a
+directory, while the toolbar's **Open** action and drag-and-drop also recognize
+the internal `project.json` file. These inputs use the project loader rather
+than the media importer. Loading from the JSON retains the containing directory
+as the project's save/snapshot path.
+
 **Goal:** Quit the app, come back, pick up exactly where you left off.
 
 Tasks:
@@ -414,7 +445,12 @@ The LLM never edits directly. It returns a list of `wordId` ranges to delete, wh
 
 ### 6.4 Caption / subtitle export
 
-Generate SRT and VTT from the post-edit EDL. The hard part is re-mapping word timestamps from source-time to output-time. We already have `computeTimeline()` — just need to chunk into subtitle-friendly lines.
+The **Captions** button beside **Export .mp4** exports SRT or VTT separately
+through a native save dialog. Captions are generated from the post-edit EDL,
+mapping source timestamps to output time with `computeTimeline()` and grouping
+words into readable cues. The main-window capability grants
+`fs:allow-write-text-file`; the dialog grants access to the selected destination.
+See [the caption export requirements](requirements/01-caption-export.md).
 
 ### 6.5 Multi-clip projects
 

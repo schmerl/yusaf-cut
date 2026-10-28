@@ -40,6 +40,8 @@ pub struct Segment {
     pub source_in: f64,
     #[serde(rename = "sourceOut")]
     pub source_out: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<crate::transcript::TranscriptMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

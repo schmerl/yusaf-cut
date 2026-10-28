@@ -9,6 +9,7 @@ whisper-cli-aarch64-apple-darwin        # whisper.cpp transcription engine
 ffmpeg-aarch64-apple-darwin             # video encode / export
 ffprobe-aarch64-apple-darwin            # media probing
 mlx-sidecar-aarch64-apple-darwin        # on-device LLM via Apple MLX (PyInstaller bundle)
+crisperwhisper-cli-aarch64-apple-darwin # verbatim ASR (PyInstaller bundle)
 whisperkit-cli-aarch64-apple-darwin     # WhisperKit transcription (Tier 2, stub for now)
 ```
 
@@ -23,7 +24,8 @@ binaries.)
   "binaries/ffmpeg",
   "binaries/ffprobe",
   "binaries/mlx-sidecar",
-  "binaries/whisperkit-cli"
+  "binaries/whisperkit-cli",
+  "binaries/crisperwhisper-cli"
 ]
 ```
 
@@ -33,10 +35,8 @@ Tauri resolves each entry to the suffixed file at build time.
 
 ## How to obtain the binaries
 
-> **None of these are committed.** They're added to `.gitignore` because they
-> are too large and licensing varies per build. Run the script below or pull
-> from the project's GitHub Releases (which CI will publish, once signing is set
-> up).
+> The development launchers are committed; production builds replace them with
+> compiled binaries. Model weights are downloaded separately on first use.
 
 ### 1. `ffmpeg` and `ffprobe`
 

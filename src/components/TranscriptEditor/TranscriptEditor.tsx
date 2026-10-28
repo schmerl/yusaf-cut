@@ -1,113 +1,77 @@
-/**
- * The primary editing surface — TipTap renders the transcript with each word as
- * a read-only WordNode. Click → seek + play. Select → highlight. Delete → drop
- * from the EDL.
- *
- * Layout:
- *   ┌─────────────────────────────────────────────────────────────┐
- *   │                                                              │
- *   │   00:12  Lorem ipsum dolor sit amet…                         │
- *   │                                                              │
- *   │   00:34  Consectetur adipiscing elit…                        │
- *   │                                                              │
- *   └─────────────────────────────────────────────────────────────┘
- *
- * Paragraph timestamps render as a *separate* React-controlled column on the
- * left, NOT as injected DOM inside each <p>. That avoids the historical
- * double-injection bug where a re-render could duplicate the stamp.
- */
-
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EditorContent, useEditor, Extension, type Editor } from "@tiptap/react";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
-import { FILLER_WORDS, WordNode } from "./WordNode";
-import { PauseNode } from "./PauseNode";
-import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
-import { usePlayerStore } from "@/stores/playerStore";
-import { useUIStore } from "@/stores/uiStore";
-import { computeTimeline, wordIdToOutputTime, type Word } from "@/lib/edl";
-import { formatTimecode } from "@/lib/timecode";
+import { Plugin } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import { Button } from "@/components/ui/button";
-import { Eraser, RotateCcw, Search } from "lucide-react";
+import { useProjectStore, endTypingGroup, useTemporalProjectStore } from "@/stores/projectStore";
+import { usePlayerStore } from "@/stores/playerStore";
+import { projectTranscript, type ProjectedBlock } from "@/lib/transcript";
+import {
+  originalTranscriptPassage,
+  restoreTranscriptRange,
+  applyTranscriptDocument,
+  splitTranscriptBlock,
+  joinTranscriptBlocks,
+  type TextRange,
+  type EditorParagraph,
+} from "@/lib/transcriptEdits";
+import { transcriptMatchContexts, type TranscriptMatch } from "@/lib/transcriptSearch";
+import type { Project } from "@/lib/edl";
+import { formatTimecode } from "@/lib/timecode";
+import { FILLER_WORDS } from "./WordNode";
 import { FindReplacePanel } from "./FindReplacePanel";
 
-/** Friendly names for speaker IDs found in the transcript. */
-const SPEAKER_NAMES: Record<string, string> = {
-  A: "Maya",
-  B: "Daniel",
-  speaker_0: "Maya",
-  speaker_1: "Daniel",
-};
+const TimedParagraph = Paragraph.extend({
+  addAttributes() {
+    return {
+      segmentId: { default: null, rendered: false },
+      blockId: { default: null, rendered: false },
+    };
+  },
+});
 
-function speakerLabel(speakerId: string | undefined): string {
-  if (!speakerId) return "Speaker";
-  return SPEAKER_NAMES[speakerId] ?? speakerId;
+function documentFor(blocks: ProjectedBlock[]) {
+  return {
+    type: "doc",
+    content: blocks.map((b) => ({
+      type: "paragraph",
+      attrs: { segmentId: b.segmentId, blockId: b.id },
+      content: b.text ? [{ type: "text", text: b.text }] : [],
+    })),
+  };
 }
-
-/** Map raw speaker ID to a stable bucket ("A" or "B") for color theming. */
-function speakerBucket(speakerId: string | undefined): "A" | "B" | "default" {
-  if (!speakerId) return "default";
-  if (speakerId === "A" || speakerId === "speaker_0") return "A";
-  if (speakerId === "B" || speakerId === "speaker_1") return "B";
-  // Fallback: hash to A/B so multi-speaker transcripts still get color variety.
-  let h = 0;
-  for (let i = 0; i < speakerId.length; i++) h = (h * 31 + speakerId.charCodeAt(i)) | 0;
-  return h % 2 === 0 ? "A" : "B";
+function readDocument(doc: PMNode): EditorParagraph[] {
+  const blocks: EditorParagraph[] = [];
+  doc.forEach((node) =>
+    blocks.push({
+      segmentId: node.attrs.segmentId as string,
+      blockId: node.attrs.blockId as string,
+      text: node.textContent,
+    }),
+  );
+  return blocks;
 }
-
-/** Threshold (ms) for a pause that forces a paragraph break. */
-const PARAGRAPH_PAUSE_MS = 750;
-
-/** Group flat word list into paragraphs, also capturing the paragraph start time. */
-function paragraphize(words: Word[]): { words: Word[]; startTime: number }[] {
-  if (words.length === 0) return [];
-  const paragraphs: { words: Word[]; startTime: number }[] = [
-    { words: [], startTime: words[0]!.start },
-  ];
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i]!;
-    const current = paragraphs[paragraphs.length - 1]!;
-    current.words.push(w);
-    const next = words[i + 1];
-    if (!next) break;
-    const gap = (next.start - w.end) * 1000;
-    const endsSentence = /[.?!]$/.test(w.text.trim());
-    if (gap >= PARAGRAPH_PAUSE_MS || endsSentence) {
-      paragraphs.push({ words: [], startTime: next.start });
-    }
-  }
-  return paragraphs.filter((p) => p.words.length > 0);
-}
-
-/** Render seconds as a compact MM:SS stamp (no milliseconds). */
-function stamp(seconds: number): string {
-  return formatTimecode(seconds, { ms: false });
-}
-
-function getSelectedWordIds(root: HTMLElement): string[] {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return [];
-  const range = selection.getRangeAt(0);
-  const ids: string[] = [];
-  root.querySelectorAll<HTMLElement>("[data-word-id]").forEach((el) => {
-    try {
-      if (range.intersectsNode(el)) {
-        const id = el.dataset.wordId;
-        if (id) ids.push(id);
-      }
-    } catch {
-      // Firefox/WebKit can throw for detached nodes during fast re-renders.
-    }
+function selectedRanges(editor: Editor): TextRange[] {
+  const { from, to } = editor.state.selection;
+  if (from === to) return [];
+  const ranges: TextRange[] = [];
+  editor.state.doc.forEach((node, pos) => {
+    const start = Math.max(0, from - pos - 1),
+      end = Math.min(node.content.size, to - pos - 1);
+    if (end > start)
+      ranges.push({
+        segmentId: node.attrs.segmentId as string,
+        blockId: node.attrs.blockId as string,
+        from: start,
+        to: end,
+      });
   });
-  return ids;
-}
-
-function nodeIsInside(root: HTMLElement, node: Node | null): boolean {
-  if (!node) return false;
-  const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
-  return !!el && root.contains(el);
+  return ranges;
 }
 
 interface TranscriptEditorProps {
@@ -122,406 +86,626 @@ export function TranscriptEditor({
   onFindClose,
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
-  const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
-  const deletePauseById = useProjectStore((s) => s.deletePauseById);
-  const setSelectedWordIds = usePlayerStore((s) => s.setSelectedWordIds);
-  // Pause tokens now live in projectStore so they survive undo/redo of EDL edits.
+  const currentTime = usePlayerStore((s) => s.currentTime);
+  const timelineMarkIn = usePlayerStore((s) => s.timelineMarkIn);
+  const timelineMarkOut = usePlayerStore((s) => s.timelineMarkOut);
+  const timelineSelection = useRef({ from: timelineMarkIn, to: timelineMarkOut });
+  timelineSelection.current = { from: timelineMarkIn, to: timelineMarkOut };
+  const projectionCache = useRef<{ project: Project; blocks: Map<string, ProjectedBlock> } | null>(
+    null,
+  );
   const pauseTokens = useProjectStore((s) => s.pauseTokens);
-  const selectedWordIds = usePlayerStore((s) => s.selectedWordIds);
-  const undo = useTemporalProjectStore((t) => t.undo);
-  const pastStates = useTemporalProjectStore((t) => t.pastStates);
-  const withProcessingEdit = useUIStore((s) => s.withProcessingEdit);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const editorRef = useRef<HTMLDivElement | null>(null);
+  const past = useTemporalProjectStore((s) => s.pastStates);
+  const blocks = useMemo(() => projectTranscript(project), [project]);
+  const model = useRef(project);
+  const composed = useRef(false);
+  const compositionBase = useRef<Project | null>(null);
+  const desiredCaret = useRef<{ segmentId: string; blockId: string; offset: number } | null>(null);
+  const pending = useRef<{ expected: Project; next: Project } | null>(null);
+  const local = useRef<Project | null>(null);
+  const externalDuringComposition = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const [error, setError] = useState("");
+  const [selection, setSelection] = useState<TextRange[]>([]);
+  const searchResults = useRef<{
+    project: Project;
+    matches: TranscriptMatch[];
+    current: number;
+  } | null>(null);
+  const [inspection, setInspection] = useState<{ project: Project; range: TextRange } | null>(null);
+  const onSearchResults = useCallback(
+    (project: Project, matches: TranscriptMatch[], current: number) => {
+      searchResults.current = { project, matches, current };
+      const editor = editorRef.current;
+      if (editor && !editor.isDestroyed) {
+        editor.view.dispatch(editor.state.tr.setMeta("search", true));
+        editor.view.dom.querySelector(".is-current-match")?.scrollIntoView?.({ block: "center" });
+      }
+    },
+    [],
+  );
+  const playback = useRef(currentTime);
+  playback.current = currentTime;
 
-  // Track each paragraph's vertical position so we can render the floating
-  // timestamp column at exactly the same y as its <p>.
-  const [paragraphTops, setParagraphTops] = useState<number[]>([]);
-
-  // Flatten all words across segments in output order.
-  const words = useMemo(() => project.segments.flatMap((s) => s.words), [project.segments]);
-  const paragraphs = useMemo(() => paragraphize(words), [words]);
-
-  // Per-paragraph speaker (first word in the paragraph wins).
-  const paragraphSpeakers = useMemo(() => paragraphs.map((p) => p.words[0]?.speaker), [paragraphs]);
-
-  // Count fillers currently visible in the transcript so the bulk-remove
-  // button can show "Remove fillers (17)".
-  const fillerCount = useMemo(() => {
-    let n = 0;
-    for (const w of words) {
-      const bare = w.text.toLowerCase().replace(/[\s.,!?;:"'()[\]{}—–-]/g, "");
-      if (FILLER_WORDS.has(bare)) n++;
+  function report(error: unknown) {
+    setError(error instanceof Error ? error.message : String(error));
+  }
+  function cut(editor: Editor) {
+    endTypingGroup();
+    try {
+      if (composed.current) throw new Error("Finish typing before cutting speech.");
+      const ranges = selectedRanges(editor);
+      if (!ranges.length) throw new Error("Select the words or complete corrected phrase to cut.");
+      useProjectStore.getState().cutSpeech(ranges, model.current);
+      setError("");
+    } catch (error) {
+      report(error);
     }
-    return n;
-  }, [words]);
+  }
+  function history(redo = false) {
+    if (composed.current) return;
+    endTypingGroup();
+    const history = useProjectStore.temporal.getState();
+    if (redo) history.redo();
+    else history.undo();
+  }
 
-  const handleRemoveAllFillers = useCallback(() => {
-    void withProcessingEdit("Removing fillers…", () => {
-      deleteWordsByText(FILLER_WORDS);
+  const integration = useMemo(
+    () =>
+      Extension.create({
+        name: "transcriptIntegration",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              filterTransaction: (tr) => {
+                if (!tr.docChanged || tr.getMeta("externalTranscript")) return true;
+                if (composed.current) return true; // draft only; project remains valid during IME
+                try {
+                  const expected = model.current;
+                  const selected = editorRef.current?.state.selection;
+                  if (
+                    selected &&
+                    !selected.empty &&
+                    selected.$from.parent !== selected.$to.parent
+                  ) {
+                    throw new Error(
+                      "Replace text within one paragraph at a time. Use Cut speech to remove multiple spoken paragraphs.",
+                    );
+                  }
+                  const next = applyTranscriptDocument(expected, readDocument(tr.doc));
+                  pending.current = { expected, next };
+                  setError("");
+                  return true;
+                } catch (error) {
+                  report(error);
+                  return false;
+                }
+              },
+              props: {
+                decorations: (state) => {
+                  if (projectionCache.current?.project !== model.current) {
+                    projectionCache.current = {
+                      project: model.current,
+                      blocks: new Map(
+                        projectTranscript(model.current).map((b) => [`${b.segmentId}:${b.id}`, b]),
+                      ),
+                    };
+                  }
+                  const projected = projectionCache.current.blocks;
+                  const decorations: Decoration[] = [];
+                  state.doc.forEach((node, pos) => {
+                    const block = projected.get(
+                      `${String(node.attrs.segmentId)}:${String(node.attrs.blockId)}`,
+                    );
+                    // Draft composition text has not yet been assigned audio anchors.
+                    if (!block || block.text !== node.textContent) return;
+                    decorations.push(
+                      Decoration.widget(
+                        pos + 1,
+                        () => {
+                          const button = document.createElement("button");
+                          button.type = "button";
+                          button.className = "transcript-time";
+                          button.contentEditable = "false";
+                          const segment = model.current.segments.find(
+                            (s) => s.id === block.segmentId,
+                          );
+                          const speaker =
+                            segment?.transcript?.originals.find(
+                              (w) => w.id === block.runs[0]!.anchorIds[0],
+                            )?.speaker ??
+                            segment?.words.find((w) => w.id === block.runs[0]!.anchorIds[0])
+                              ?.speaker;
+                          button.textContent = `${speaker ? `${speaker} · ` : ""}${formatTimecode(block.runs[0]!.outputStart, { ms: false })}`;
+                          button.setAttribute("aria-label", "Seek to paragraph");
+                          button.addEventListener("mousedown", (event) => event.preventDefault());
+                          button.addEventListener("click", () =>
+                            window.dispatchEvent(
+                              new CustomEvent("yusafcut:seek-output", {
+                                detail: {
+                                  time: block.runs[0]!.outputStart,
+                                  play: usePlayerStore.getState().playing,
+                                },
+                              }),
+                            ),
+                          );
+                          return button;
+                        },
+                        { key: `${block.segmentId}:${block.id}:time`, side: -1 },
+                      ),
+                    );
+                    const search = searchResults.current;
+                    if (search?.project === model.current) {
+                      const matches = search.matches.filter(
+                        (match) =>
+                          match.segmentId === block.segmentId && match.blockId === block.id,
+                      );
+                      for (const context of transcriptMatchContexts(block.text, matches)) {
+                        decorations.push(
+                          Decoration.inline(pos + 1 + context.from, pos + 1 + context.to, {
+                            class: "is-match-context",
+                          }),
+                        );
+                      }
+                      search.matches.forEach((match, index) => {
+                        if (match.segmentId === block.segmentId && match.blockId === block.id)
+                          decorations.push(
+                            Decoration.inline(pos + 1 + match.from, pos + 1 + match.to, {
+                              class: `is-match${index === search.current ? " is-current-match" : ""}`,
+                            }),
+                          );
+                      });
+                    }
+                    for (const run of block.runs) {
+                      if (run.from === run.to) continue;
+                      const active =
+                        playback.current >= run.outputStart && playback.current < run.outputEnd;
+                      const range = timelineSelection.current;
+                      const selected =
+                        range.from !== null &&
+                        range.to !== null &&
+                        run.outputEnd > Math.min(range.from, range.to) &&
+                        run.outputStart < Math.max(range.from, range.to);
+                      decorations.push(
+                        Decoration.inline(pos + 1 + run.from, pos + 1 + run.to, {
+                          class: `word${active ? " is-playing" : ""}${selected ? " is-selected" : ""}`,
+                          "data-word-id": run.id,
+                          "data-run-id": run.id,
+                          "data-output-start": String(run.outputStart),
+                        }),
+                      );
+                    }
+                  });
+                  return DecorationSet.create(state.doc, decorations);
+                },
+                handlePaste: (view, event) => {
+                  event.preventDefault();
+                  const text = event.clipboardData?.getData("text/plain") ?? "";
+                  view.dispatch(view.state.tr.insertText(text.replace(/\r?\n/g, " ")));
+                  return true;
+                },
+                handleKeyDown: (view, event) => {
+                  const mod = event.metaKey || event.ctrlKey;
+                  if (event.isComposing || composed.current) return false;
+                  if (mod && event.shiftKey && event.key.toLowerCase() === "x") {
+                    event.preventDefault();
+                    if (editorRef.current) cut(editorRef.current);
+                    return true;
+                  }
+                  if (mod && event.key.toLowerCase() === "z") {
+                    event.preventDefault();
+                    history(event.shiftKey);
+                    return true;
+                  }
+                  if (event.key === "Enter" && !mod) {
+                    event.preventDefault();
+                    try {
+                      const { $from, empty } = view.state.selection;
+                      if (!empty)
+                        throw new Error(
+                          "Place the cursor between timed words to split the paragraph.",
+                        );
+                      const next = splitTranscriptBlock(
+                        model.current,
+                        $from.parent.attrs.segmentId as string,
+                        $from.parent.attrs.blockId as string,
+                        $from.parentOffset,
+                      );
+                      const projected = projectTranscript(next);
+                      const index = projected.findIndex((b) => b.id === $from.parent.attrs.blockId);
+                      desiredCaret.current = {
+                        segmentId: projected[index + 1]!.segmentId,
+                        blockId: projected[index + 1]!.id,
+                        offset: 0,
+                      };
+                      endTypingGroup();
+                      useProjectStore.getState().commitTranscript(next, model.current);
+                    } catch (error) {
+                      report(error);
+                    }
+                    return true;
+                  }
+                  const sel = view.state.selection;
+                  const backward =
+                    event.key === "Backspace" && sel.empty && sel.$from.parentOffset === 0;
+                  const forward =
+                    event.key === "Delete" &&
+                    sel.empty &&
+                    sel.$from.parentOffset === sel.$from.parent.content.size;
+                  if (backward || forward) {
+                    event.preventDefault();
+                    try {
+                      const all = projectTranscript(model.current);
+                      const i = all.findIndex(
+                        (b) =>
+                          b.id === sel.$from.parent.attrs.blockId &&
+                          b.segmentId === sel.$from.parent.attrs.segmentId,
+                      );
+                      const left = all[backward ? i - 1 : i],
+                        right = all[backward ? i : i + 1];
+                      if (!left || !right) return true;
+                      if (left.segmentId !== right.segmentId)
+                        throw new Error("Cannot join text across clips or cuts.");
+                      const next = joinTranscriptBlocks(
+                        model.current,
+                        left.segmentId,
+                        left.id,
+                        right.id,
+                      );
+                      desiredCaret.current = {
+                        segmentId: left.segmentId,
+                        blockId: left.id,
+                        offset: left.text.length,
+                      };
+                      endTypingGroup();
+                      useProjectStore.getState().commitTranscript(next, model.current);
+                    } catch (error) {
+                      report(error);
+                    }
+                    return true;
+                  }
+                  return false;
+                },
+                handleDOMEvents: {
+                  compositionstart: () => {
+                    composed.current = true;
+                    compositionBase.current = model.current;
+                    endTypingGroup();
+                    return false;
+                  },
+                  compositionend: (view) => {
+                    // WebKit's final input may arrive after compositionend.
+                    timer.current = setTimeout(() => {
+                      composed.current = false;
+                      try {
+                        if (
+                          externalDuringComposition.current ||
+                          model.current !== compositionBase.current
+                        ) {
+                          throw new Error(
+                            "The project changed while typing. Your last valid transcript has been restored.",
+                          );
+                        }
+                        const expected = model.current;
+                        const next = applyTranscriptDocument(
+                          expected,
+                          readDocument(view.state.doc),
+                        );
+                        local.current = next;
+                        model.current = next;
+                        useProjectStore.getState().commitTranscript(next, expected);
+                        setError("");
+                      } catch (error) {
+                        report(error);
+                        const editor = editorRef.current;
+                        if (editor) sync(editor, useProjectStore.getState().project);
+                      } finally {
+                        compositionBase.current = null;
+                        externalDuringComposition.current = false;
+                      }
+                    }, 0);
+                    return false;
+                  },
+                  blur: () => {
+                    endTypingGroup();
+                    return false;
+                  },
+                },
+              },
+            }),
+          ];
+        },
+        // These callbacks operate on refs, so the editor/plugin remains stable across typing.
+      }),
+    // Plugin callbacks intentionally read refs; recreating it per render loses editor state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  function sync(editor: Editor, p: Project) {
+    model.current = p;
+    local.current = null;
+    pending.current = null;
+    const json = documentFor(projectTranscript(p));
+    const doc = editor.schema.nodeFromJSON(
+      json.content.length ? json : { type: "doc", content: [{ type: "paragraph" }] },
+    );
+    const previous = editor.state.selection;
+    const logical = desiredCaret.current ?? {
+      segmentId: previous.$from.parent.attrs.segmentId as string,
+      blockId: previous.$from.parent.attrs.blockId as string,
+      offset: previous.$from.parentOffset,
+    };
+    desiredCaret.current = null;
+    let caret = 1;
+    doc.forEach((node, pos) => {
+      if (node.attrs.blockId === logical.blockId && node.attrs.segmentId === logical.segmentId)
+        caret = pos + 1 + Math.min(logical.offset, node.content.size);
     });
-  }, [deleteWordsByText, withProcessingEdit]);
+    const tr = editor.state.tr
+      .replaceWith(0, editor.state.doc.content.size, doc.content)
+      .setMeta("externalTranscript", true);
+    tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(caret, tr.doc.content.size))));
+    editor.view.dispatch(tr);
+  }
 
   const editor = useEditor({
-    extensions: [Document, Paragraph, Text, WordNode, PauseNode],
-    editable: false,
-    content: { type: "doc", content: [] },
+    extensions: [Document, TimedParagraph, Text, integration],
+    content: documentFor(blocks),
+    editable: true,
     editorProps: {
       attributes: {
         class: "transcript-editor",
+        "aria-label": "Editable transcript",
+        role: "textbox",
+        "aria-multiline": "true",
       },
     },
-  });
-
-  const handleTranscriptClick = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const selection = window.getSelection();
-      if (selection && !selection.isCollapsed) return;
-
-      // Pause badge click: remove that pause by its stable id.
-      const pauseEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-pause]");
-      if (pauseEl && containerRef.current?.contains(pauseEl)) {
-        const pauseId = pauseEl.dataset.pauseId;
-        if (pauseId) void withProcessingEdit("Updating timeline…", () => deletePauseById(pauseId));
-        return;
+    onUpdate: () => {
+      if (composed.current) return;
+      const change = pending.current;
+      pending.current = null;
+      if (!change) return;
+      try {
+        local.current = change.next;
+        model.current = change.next;
+        const ranges = editorRef.current ? selectedRanges(editorRef.current) : [];
+        useProjectStore
+          .getState()
+          .commitTranscript(
+            change.next,
+            change.expected,
+            ranges.length
+              ? undefined
+              : `typing:${editorRef.current!.state.selection.$from.parent.attrs.blockId as string}`,
+          );
+      } catch (error) {
+        report(error);
+        if (editorRef.current) sync(editorRef.current, useProjectStore.getState().project);
       }
-
-      const wordEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-word-id]");
-      if (!wordEl || !containerRef.current?.contains(wordEl)) return;
-      const wordId = wordEl.dataset.wordId;
-      if (!wordId) return;
-      const mapped = wordIdToOutputTime(project, wordId);
-      if (!mapped) return;
-      window.dispatchEvent(
-        new CustomEvent("yusafcut:seek-output", { detail: { time: mapped.outputTime, play: true } }),
-      );
     },
-    [project, deletePauseById, withProcessingEdit],
-  );
+    onSelectionUpdate: ({ editor, transaction }) => {
+      setSelection(selectedRanges(editor));
+      if (!transaction.docChanged || !editor.state.selection.empty) endTypingGroup();
+    },
+  });
+  editorRef.current = editor;
 
-  // Wire up keyboard deletion for selected pause nodes (fired by PauseNode's
-  // addKeyboardShortcuts).  The custom event carries the stable pauseId.
-  useEffect(() => {
-    function onDeletePause(e: Event) {
-      const pauseId = (e as CustomEvent<{ pauseId: string }>).detail.pauseId;
-      if (pauseId) void withProcessingEdit("Updating timeline…", () => deletePauseById(pauseId));
-    }
-    window.addEventListener("yusafcut:delete-pause", onDeletePause);
-    return () => window.removeEventListener("yusafcut:delete-pause", onDeletePause);
-  }, [deletePauseById, withProcessingEdit]);
-
-  // Re-render the TipTap document whenever the EDL or pause tokens change.
-  // Pauses marked as `deleted` are omitted from the rebuild so they disappear
-  // immediately — no duplicate badge problem since setPauseTokens always replaces.
-  //
-  // Pauses are placed by MERGING words and pauses into one time-sorted stream and
-  // anchoring each pause after the last word whose *start* precedes the pause's
-  // start. We deliberately compare against word START times, never word END
-  // times: Whisper (especially large-v3 without DTW) stretches a word's `end` to
-  // abut the next word, absorbing the silence into the preceding word — so the
-  // inter-word "gap" is near-zero and any end/gap-based match silently drops the
-  // badge. Start-anchoring always finds exactly one home for every pause.
   useEffect(() => {
     if (!editor) return;
-
-    // Build a time-sorted token stream. On a start-time tie, the word sorts
-    // before the pause so the badge renders after the word it follows.
-    type Tok =
-      | { kind: "word"; start: number; order: 0; w: Word }
-      | { kind: "pause"; start: number; order: 1; p: (typeof pauseTokens)[number] };
-    const toks: Tok[] = [];
-    for (const w of words) toks.push({ kind: "word", start: w.start, order: 0, w });
-    for (const p of pauseTokens) {
-      if (!p.deleted) toks.push({ kind: "pause", start: p.start, order: 1, p });
+    if (composed.current) {
+      if (project !== compositionBase.current) externalDuringComposition.current = true;
+      return;
     }
-    toks.sort((a, b) => a.start - b.start || a.order - b.order);
-
-    // Walk the stream, grouping words into paragraphs using the SAME rule as
-    // paragraphize() (gap ≥ 750 ms between consecutive words, or sentence end) so
-    // the rendered <p> count stays in lockstep with the floating timestamp column.
-    // Pause badges attach to whichever paragraph is current when reached.
-    const paraContents: object[][] = [[]];
-    let lastWord: Word | null = null;
-    const seenPauseIds = new Set<string>();
-
-    for (const tok of toks) {
-      if (tok.kind === "word") {
-        const w = tok.w;
-        if (lastWord) {
-          const gapMs = (w.start - lastWord.end) * 1000;
-          const endsSentence = /[.?!]$/.test(lastWord.text.trim());
-          if (gapMs >= PARAGRAPH_PAUSE_MS || endsSentence) {
-            paraContents.push([]); // start a new paragraph
-          } else {
-            // Space between two words within the same paragraph.
-            paraContents[paraContents.length - 1]!.push({ type: "text", text: " " });
-          }
-        }
-        paraContents[paraContents.length - 1]!.push({
-          type: "word",
-          attrs: { wordId: w.id, start: w.start, end: w.end, confidence: w.confidence },
-          content: [{ type: "text", text: w.text }],
-        });
-        lastWord = w;
-      } else {
-        const p = tok.p;
-        if (seenPauseIds.has(p.id)) continue; // never duplicate a badge
-        seenPauseIds.add(p.id);
-        // If the pause has been visually shortened, show the shorter duration.
-        const displayDuration = p.shortenedTo ?? p.duration;
-        // The badge carries its own horizontal margin (.pause-marker), so no
-        // surrounding text spaces are needed.
-        paraContents[paraContents.length - 1]!.push({
-          type: "pause",
-          attrs: {
-            pauseId: p.id,
-            srcStart: p.start,
-            srcEnd: p.end,
-            duration: displayDuration,
-          },
-        });
-      }
+    if (project === local.current) {
+      model.current = project;
+      editor.view.dispatch(editor.state.tr.setMeta("projection", true));
+    } else if (
+      model.current !== project ||
+      readDocument(editor.state.doc)[0]?.blockId !== blocks[0]?.id
+    ) {
+      sync(editor, project);
     }
-
-    const cleanDoc = {
-      type: "doc",
-      content: paraContents
-        .filter((c) => c.length > 0)
-        .map((content) => ({ type: "paragraph", content })),
-    };
-
-    editor.commands.setContent(cleanDoc as never, false);
-  }, [editor, pauseTokens, words]);
-
-  // Measure paragraph positions so the floating timestamp column lines up.
-  // Re-measures on layout changes (resize, content change).
-  useLayoutEffect(() => {
-    function measure() {
-      const root = editorRef.current;
-      if (!root) return;
-      const paras = root.querySelectorAll<HTMLElement>(".transcript-editor p");
-      const rootRect = root.getBoundingClientRect();
-      const tops: number[] = [];
-      paras.forEach((p) => {
-        const r = p.getBoundingClientRect();
-        tops.push(r.top - rootRect.top + root.scrollTop);
-      });
-      setParagraphTops(tops);
-    }
-    measure();
-    // Re-measure shortly after — TipTap's setContent renders async.
-    const t = setTimeout(measure, 50);
-    const ro = new ResizeObserver(measure);
-    if (editorRef.current) ro.observe(editorRef.current);
-    window.addEventListener("resize", measure);
-    return () => {
-      clearTimeout(t);
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [paragraphs, editor]);
-
-  // Sync native text selection → selected word IDs. The editor is intentionally
-  // read-only, so selection tracking has to come from the DOM rather than
-  // ProseMirror transactions.
+    // sync uses no reactive state; local echo must not replace the editor document.
+  }, [editor, project, blocks]);
   useEffect(() => {
-    function onSelectionChange() {
-      const root = containerRef.current;
-      const selection = window.getSelection();
-      if (!root || !selection) return;
-      if (!nodeIsInside(root, selection.anchorNode) && !nodeIsInside(root, selection.focusNode)) {
-        return;
-      }
-      setSelectedWordIds(getSelectedWordIds(root));
-    }
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, [setSelectedWordIds]);
-
-  // Highlight timeline/keyboard selections in the transcript too.
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-    root
-      .querySelectorAll<HTMLElement>(".word.is-selected")
-      .forEach((el) => el.classList.remove("is-selected"));
-    selectedWordIds.forEach((id) => {
-      const el = root.querySelector<HTMLElement>(`[data-word-id="${CSS.escape(id)}"]`);
-      if (el) el.classList.add("is-selected");
-    });
-  }, [selectedWordIds, paragraphs]);
-
-  // Highlight the currently playing word.
-  // During silence gaps between words we keep the preceding word dimly highlighted
-  // (is-silence-after) so the playhead position stays visible in the transcript.
-  const currentTime = usePlayerStore((s) => s.currentTime);
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-    const timeline = computeTimeline(project);
-
-    let activeWordId: string | null = null;
-    let silenceAfterWordId: string | null = null; // last word before a silence gap
-
-    for (const entry of timeline) {
-      if (currentTime >= entry.outputStart && currentTime < entry.outputEnd) {
-        const sourceTime = entry.sourceIn + (currentTime - entry.outputStart);
-        const seg = project.segments.find((s) => s.id === entry.segmentId);
-        if (seg) {
-          let prevWordId: string | null = null;
-          for (const w of seg.words) {
-            if (sourceTime >= w.start && sourceTime < w.end) {
-              activeWordId = w.id;
-              break;
-            }
-            // Track the last word whose end is at or before sourceTime
-            if (w.end <= sourceTime) {
-              prevWordId = w.id;
-            }
-          }
-          // If we are between two words (silence gap), highlight the preceding word
-          if (!activeWordId && prevWordId !== null) {
-            silenceAfterWordId = prevWordId;
-          }
-        }
-        break;
-      }
-    }
-
-    root
-      .querySelectorAll<HTMLElement>(".word.is-playing, .word.is-silence-after")
-      .forEach((el) => {
-        el.classList.remove("is-playing");
-        el.classList.remove("is-silence-after");
-      });
-
-    if (activeWordId) {
-      const el = root.querySelector<HTMLElement>(`[data-word-id="${CSS.escape(activeWordId)}"]`);
-      if (el) {
-        el.classList.add("is-playing");
-        const rect = el.getBoundingClientRect();
-        const cRect = root.getBoundingClientRect();
-        if (rect.bottom > cRect.bottom || rect.top < cRect.top) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      }
-    } else if (silenceAfterWordId) {
-      const el = root.querySelector<HTMLElement>(
-        `[data-word-id="${CSS.escape(silenceAfterWordId)}"]`,
-      );
-      if (el) {
-        el.classList.add("is-silence-after");
-        const rect = el.getBoundingClientRect();
-        const cRect = root.getBoundingClientRect();
-        if (rect.bottom > cRect.bottom || rect.top < cRect.top) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      }
-    }
-  }, [currentTime, project]);
-
-  // Click on a paragraph timestamp → seek to start of that paragraph.
-  const seekToParagraph = useCallback(
-    (wordId: string) => {
-      const mapped = wordIdToOutputTime(project, wordId);
-      if (!mapped) return;
-      window.dispatchEvent(
-        new CustomEvent("yusafcut:seek-output", { detail: { time: mapped.outputTime, play: true } }),
-      );
+    if (editor && !editor.isDestroyed)
+      editor.view.dispatch(editor.state.tr.setMeta("playback", true));
+  }, [editor, currentTime, timelineMarkIn, timelineMarkOut]);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
     },
-    [project],
+    [],
   );
 
-  // ── Empty / loading states ────────────────────────────────────────────────
-
-  // All words deleted after transcription
-  if (project.segments.length > 0 && words.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-center text-muted-foreground">
-        <div>
-          <p className="text-sm font-medium">All words deleted</p>
-          <p className="mt-1 text-xs opacity-60">Press ⌘Z to undo</p>
-        </div>
-      </div>
+  function seek(event: React.MouseEvent) {
+    if (!event.metaKey && !event.ctrlKey) return;
+    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-output-start]");
+    if (!target) return;
+    event.preventDefault();
+    window.dispatchEvent(
+      new CustomEvent("yusafcut:seek-output", {
+        detail: {
+          time: Number(target.dataset.outputStart),
+          play: usePlayerStore.getState().playing,
+        },
+      }),
     );
   }
-
+  function inspect(wholeParagraph: boolean) {
+    if (!editor || composed.current) {
+      report("Finish typing before inspecting originals.");
+      return;
+    }
+    const ranges = selectedRanges(editor);
+    const parent = editor.state.selection.$from.parent;
+    const block = blocks.find(
+      (b) => b.segmentId === parent.attrs.segmentId && b.id === parent.attrs.blockId,
+    );
+    if (!block || (!wholeParagraph && ranges.length !== 1)) {
+      report("Select a passage within one paragraph to inspect its original text.");
+      return;
+    }
+    const range = wholeParagraph
+      ? { segmentId: block.segmentId, blockId: block.id, from: 0, to: block.text.length }
+      : ranges[0]!;
+    setInspection({ project, range });
+    setError("");
+  }
+  const original =
+    inspection && inspection.project === project
+      ? originalTranscriptPassage(project, inspection.range)
+      : null;
+  const fullParagraphSelected = selection.some((r) => {
+    const b = blocks.find((b) => b.id === r.blockId && b.segmentId === r.segmentId);
+    return b && r.from === 0 && r.to === b.text.length;
+  });
   return (
-    <div ref={containerRef} className="flex h-full w-full flex-col" onClick={handleTranscriptClick}>
-      {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} />}
-      {/*
-       * Transcript toolbar — one-click filler removal and restore. Matches the
-       * design's "Remove fillers (17)" / "Restore" buttons that live above the
-       * scrolling transcript.
-       */}
-      <div className="transcript-toolbar">
+    <div className="flex h-full w-full flex-col">
+      {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} onResults={onSearchResults} />}
+      <div className="transcript-toolbar flex-wrap">
         <span className="label">Transcript</span>
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 gap-1.5 text-xs"
           onClick={() => (findOpen ? onFindClose?.() : onFindOpen?.())}
-          title={findOpen ? "Close transcript search" : "Open transcript search"}
         >
-          <Search className="h-3.5 w-3.5" />
-          {findOpen ? "Hide search" : "Search"}
+          Search
         </Button>
         <Button
           size="sm"
-          variant="outline"
-          className="h-7 gap-1.5 text-xs"
-          onClick={handleRemoveAllFillers}
-          disabled={fillerCount === 0}
-          title="Delete every filler word (um, uh, like, …)"
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={!selection.length}
+          onClick={() => editor && cut(editor)}
+          title="Remove selected audio/video (⌘⇧X)"
         >
-          <Eraser className="h-3.5 w-3.5" />
-          Remove fillers
-          <span className="count-badge">{fillerCount}</span>
+          Cut speech ⌘⇧X
         </Button>
-        {pastStates.length > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => undo()}
-            title="Undo last edit (⌘Z)"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Restore
-          </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={selection.length !== 1}
+          onClick={() => inspect(false)}
+        >
+          View original selection
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={!blocks.length}
+          onClick={() => inspect(true)}
+        >
+          View paragraph original
+        </Button>
+        <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
+          Undo
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            try {
+              endTypingGroup();
+              useProjectStore.getState().deleteWordsByText(FILLER_WORDS);
+            } catch (error) {
+              report(error);
+            }
+          }}
+        >
+          Cut filler speech
+        </Button>
+        {fullParagraphSelected && (
+          <span className="text-xs text-muted-foreground">
+            Paragraph cut includes text-hidden speech
+          </span>
         )}
       </div>
-
-      <div className="transcript-scroll relative flex-1">
-        <div ref={editorRef} className="relative">
-          {/* Floating speaker + timestamp column — one chip per paragraph. */}
-          <div className="pointer-events-none absolute left-0 top-0 z-[1] hidden md:block">
-            {paragraphs.map((para, idx) => {
-              const top = paragraphTops[idx];
-              if (top === undefined) return null;
-              const speakerId = paragraphSpeakers[idx];
-              const bucket = speakerBucket(speakerId);
-              const name = speakerId ? speakerLabel(speakerId) : null;
-              return (
-                <button
-                  key={`${para.startTime}-${idx}`}
-                  type="button"
-                  onClick={() => seekToParagraph(para.words[0]!.id)}
-                  className="paragraph-speaker-chip pointer-events-auto"
-                  style={{ top }}
-                  data-speaker={bucket}
-                  title={`Jump to ${name ?? "this paragraph"}`}
-                >
-                  {name && <span className="name">{name}</span>}
-                  <span className="ts">{stamp(para.startTime)}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <EditorContent editor={editor} />
+      <p className="px-4 text-xs text-muted-foreground">
+        Typing edits text only. Cmd-click seeks. Cut speech changes the video.
+      </p>
+      {inspection && (
+        <div
+          className="border-b border-border px-4 py-2 text-sm"
+          aria-label="Original recognized text"
+        >
+          {original ? (
+            <>
+              <p className="font-medium">Original recognized text</p>
+              <p>{original.originalText}</p>
+              <p className="text-xs text-muted-foreground">
+                {original.expanded ? "Includes the whole corrected timing group. " : ""}
+                Restores text only. Paragraph restoration includes text-hidden words.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  try {
+                    if (composed.current) throw new Error("Finish typing before restoring text.");
+                    const current = useProjectStore.getState().project;
+                    useProjectStore
+                      .getState()
+                      .commitTranscript(
+                        restoreTranscriptRange(current, inspection.project, inspection.range),
+                        inspection.project,
+                      );
+                    setInspection(null);
+                    setError("");
+                  } catch (error) {
+                    report(error);
+                  }
+                }}
+              >
+                Restore original text
+              </Button>
+            </>
+          ) : (
+            <p>The transcript changed. Inspect the passage again before restoring.</p>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setInspection(null)}>
+            Close original text
+          </Button>
         </div>
+      )}
+      {error && (
+        <p role="alert" className="px-4 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {pauseTokens.some((p) => !p.deleted) && (
+        <details className="px-4 text-xs">
+          <summary>Detected pauses — explicit audio cuts</summary>
+          {pauseTokens
+            .filter((p) => !p.deleted)
+            .map((p) => (
+              <Button
+                key={p.id}
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  try {
+                    useProjectStore.getState().deletePauseById(p.id);
+                  } catch (error) {
+                    report(error);
+                  }
+                }}
+              >
+                Cut pause at {formatTimecode(p.start)} ({p.duration.toFixed(1)}s)
+              </Button>
+            ))}
+        </details>
+      )}
+      <div className="transcript-scroll flex-1" onClick={seek}>
+        <EditorContent editor={editor} />
       </div>
+      {!blocks.length && (
+        <p className="p-4 text-sm text-muted-foreground">
+          No transcribed speech. Transcribe a clip or undo a cut.
+        </p>
+      )}
     </div>
   );
 }

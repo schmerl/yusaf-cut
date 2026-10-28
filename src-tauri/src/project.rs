@@ -16,6 +16,7 @@ use tokio::fs;
 const PROJECT_FILE: &str = "project.json";
 
 pub async fn save(project: &Project, path: &Path) -> Result<()> {
+    crate::transcript::validate_project(project)?;
     fs::create_dir_all(path).await.with_context(|| format!("creating {}", path.display()))?;
     let main = path.join(PROJECT_FILE);
     let tmp = path.join(format!("{}.tmp", PROJECT_FILE));
@@ -33,6 +34,7 @@ pub async fn load(path: &Path) -> Result<Project> {
     };
     let raw = fs::read(&p).await.with_context(|| format!("reading {}", p.display()))?;
     let project: Project = serde_json::from_slice(&raw).context("parsing project.json")?;
+    crate::transcript::validate_project(&project)?;
     Ok(project)
 }
 
