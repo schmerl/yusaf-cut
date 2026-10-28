@@ -9,7 +9,7 @@
 #   npm run build:mas
 #
 # Prerequisites:
-#   1. All five sidecar binaries built and present in src-tauri/binaries/.
+#   1. All sidecar binaries built and present in src-tauri/binaries/.
 #      If any are missing or stubs, run `npm run build:production` first —
 #      it builds the binaries as a side-effect of the DMG build.
 #   2. Apple Distribution certificate installed in your login keychain.
@@ -49,11 +49,11 @@ header "1 / 4  Platform"
 [[ "$(uname -m)" == "arm64"  ]] || die "Apple Silicon (arm64) required."
 ok "Apple Silicon Mac"
 
-# ── 2. Verify all five sidecar binaries are real compiled binaries ─────────────
+# ── 2. Verify all sidecar binaries are real compiled binaries ──────────────────
 header "2 / 4  Sidecar binaries"
 
 MISSING=()
-for bin in whisper-cli whisperkit-cli ffmpeg ffprobe mlx-sidecar; do
+for bin in whisper-cli whisperkit-cli ffmpeg ffprobe mlx-sidecar crisperwhisper-cli; do
   f="$BINS/${bin}-$ARCH_SUFFIX"
   if [[ ! -x "$f" ]]; then
     MISSING+=("$bin (missing)")

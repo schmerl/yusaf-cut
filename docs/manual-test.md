@@ -20,12 +20,12 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 
 ### Optional CrisperWhisper 2 provider
 
-Install `crisperwhisper[transformers]` in a Python 3.11 or 3.12 virtual
-environment. In **Transcription settings**, select **CrisperWhisper 2 · verbatim**,
-choose **Medium**, and browse to that environment's `bin/python`. The app
-extracts audio as before and asks CrisperWhisper for word timestamps. Its first
-run may download model weights into the Hugging Face cache. The standard weights
-have a non-commercial research license; they are not bundled with YusafCut.
+In **Transcription settings**, select **CrisperWhisper 2 · verbatim** and choose
+**Medium**. The app extracts audio as before and asks CrisperWhisper for word
+timestamps. Its first run may download model weights into the Hugging Face
+cache. The standard weights have a non-commercial research license; they are
+not bundled with YusafCut. Development builds install a dedicated environment
+on first use; production builds bundle the inference runtime.
 
 - [ ] Transcribe a clip with audible fillers and repeats; verify `[UM]`/`[UH]`
       and both attempts appear as editable, timed words.

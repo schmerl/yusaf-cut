@@ -21,7 +21,6 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
-use tokio::process::Command;
 
 // ---------------------------------------------------------------------------
 // TranscriptionEngine
@@ -133,8 +132,6 @@ pub struct TranscribeOpts {
     /// Engine-specific model size or slug.
     #[serde(rename = "modelName")]
     pub model_name: String,
-    #[serde(rename = "pythonPath", default)]
-    pub python_path: Option<String>,
     /// Total media duration in seconds — used to emit accurate 0..1 progress.
     #[serde(rename = "mediaDuration", default)]
     pub media_duration: f64,
@@ -624,19 +621,12 @@ async fn transcribe_crisper_whisper(
     if !matches!(opts.model_name.as_str(), "small" | "medium" | "large" | "turbo") {
         return Err(format!("unknown CrisperWhisper model: {}", opts.model_name));
     }
-    let python = opts.python_path.as_deref().filter(|p| !p.is_empty())
-        .ok_or("Choose the Python executable from your CrisperWhisper environment")?;
-    if !PathBuf::from(python).is_absolute() || !PathBuf::from(python).is_file() {
-        return Err("CrisperWhisper Python path must be an existing absolute file".into());
-    }
     let language = opts.language.as_deref().filter(|l| !l.is_empty()).unwrap_or("auto");
-    let child = Command::new(python)
-        .arg("-c")
-        .arg(include_str!("../crisperwhisper_bridge.py"))
-        .arg(wav)
-        .arg(&opts.model_name)
-        .arg(language)
-        .kill_on_drop(true)
+    let wav_path = wav.to_str().ok_or("temporary WAV path is not valid UTF-8")?;
+    let child = app.shell()
+        .sidecar("crisperwhisper-cli")
+        .map_err(|e| format!("CrisperWhisper sidecar unavailable: {e}"))?
+        .args([wav_path, &opts.model_name, language])
         .output();
     tokio::pin!(child);
     let started_at = std::time::Instant::now();

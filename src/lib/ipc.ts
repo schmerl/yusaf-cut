@@ -50,8 +50,6 @@ export interface TranscribeOptions {
   mediaPath: string;
   engine?: TranscriptionEngine;
   modelName: WhisperModel | "turbo" | "large";
-  /** Absolute Python executable in an environment with crisperwhisper[transformers]. */
-  pythonPath?: string;
   /** Total media duration in seconds — used to compute 0..1 progress. */
   mediaDuration?: number;
   /**

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Development launcher. Release builds replace this with a PyInstaller binary.
+set -eu
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+sidecar_dir="$repo_dir/sidecars/crisperwhisper"
+venv_dir="$sidecar_dir/.venv"
+if [ ! -x "$venv_dir/bin/python" ]; then
+  if command -v python3.11 >/dev/null 2>&1; then
+    python3.11 -m venv "$venv_dir"
+  elif command -v python3.12 >/dev/null 2>&1; then
+    python3.12 -m venv "$venv_dir"
+  elif [ -x /opt/homebrew/opt/python@3.11/bin/python3.11 ]; then
+    /opt/homebrew/opt/python@3.11/bin/python3.11 -m venv "$venv_dir"
+  else
+    echo "CrisperWhisper development setup needs Python 3.11 or 3.12. Release builds bundle Python." >&2
+    exit 1
+  fi
+fi
+if ! "$venv_dir/bin/python" -c 'import crisperwhisper' 2>/dev/null; then
+  echo "Installing CrisperWhisper in the app's development environment (first use only)..." >&2
+  "$venv_dir/bin/python" -m pip install -r "$sidecar_dir/requirements.txt" >&2
+fi
+exec "$venv_dir/bin/python" "$repo_dir/src-tauri/src/crisperwhisper_bridge.py" "$@"

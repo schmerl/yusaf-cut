@@ -149,7 +149,6 @@ describe("transactional recognition", () => {
     const options = {
       engine: "crisper-whisper" as const,
       modelName: "medium" as const,
-      pythonPath: "/tmp/crisper-bench/bin/python",
       language: "en",
     };
     const result = await runTranscription(captureTranscription(true), options);
@@ -280,7 +279,6 @@ it("does not reuse or replace the legacy Whisper cache for CrisperWhisper", asyn
   const result = await runTranscription(captureTranscription(false), {
     engine: "crisper-whisper",
     modelName: "medium",
-    pythonPath: "/tmp/crisper-bench/bin/python",
   });
   expect(transcribe).toHaveBeenCalledOnce();
   expect(projectTranscript(result.project)[1]!.text).toBe("[UM]");
