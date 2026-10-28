@@ -39,6 +39,10 @@ struct OllamaModel {
 struct OllamaReply {
     response: String,
     done: bool,
+    #[serde(default)]
+    thinking: Option<String>,
+    #[serde(default)]
+    done_reason: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -332,18 +336,13 @@ fn ollama_prompt(window: &AnalysisWindow, group: &Group) -> String {
         surrounding
     )
 }
-async fn analyze_with_ollama(
-    client: &reqwest::Client,
-    model: &str,
-    window: &AnalysisWindow,
-) -> Result<WindowResult, String> {
-    let mut groups = Vec::new();
-    for hypothesis in &window.hypotheses {
-        let request = serde_json::json!({
+fn ollama_request(model: &str, window: &AnalysisWindow, hypothesis: &Group) -> serde_json::Value {
+    serde_json::json!({
             "model": model,
             "system": OLLAMA_SYSTEM,
             "prompt": ollama_prompt(window, hypothesis),
             "stream": false,
+            "think": false,
             "format": {
                 "type": "object",
                 "properties": {
@@ -355,7 +354,33 @@ async fn analyze_with_ollama(
                 "additionalProperties": false
             },
             "options": {"temperature": 0, "num_predict": 100}
-        });
+    })
+}
+fn parse_ollama_decision(bytes: &[u8]) -> Result<SemanticDecision, String> {
+    let reply: OllamaReply = serde_json::from_slice(bytes)
+        .map_err(|_| "Ollama returned an invalid response".to_string())?;
+    if !reply.done {
+        return Err("Ollama returned an incomplete response".into());
+    }
+    if reply.response.trim().is_empty() {
+        if reply.done_reason.as_deref() == Some("length")
+            && reply.thinking.as_deref().is_some_and(|text| !text.is_empty())
+        {
+            return Err("Ollama used its output limit for thinking without returning a retake decision. Choose a model that supports non-thinking responses.".into());
+        }
+        return Err("Ollama returned no retake decision".into());
+    }
+    serde_json::from_str(&reply.response)
+        .map_err(|_| "Ollama did not return the required retake decision".to_string())
+}
+async fn analyze_with_ollama(
+    client: &reqwest::Client,
+    model: &str,
+    window: &AnalysisWindow,
+) -> Result<WindowResult, String> {
+    let mut groups = Vec::new();
+    for hypothesis in &window.hypotheses {
+        let request = ollama_request(model, window, hypothesis);
         let response = client
             .post(format!("{OLLAMA_URL}/api/generate"))
             .json(&request)
@@ -365,13 +390,7 @@ async fn analyze_with_ollama(
             .error_for_status()
             .map_err(|e| format!("Local Ollama rejected the request: {e}"))?;
         let bytes = bounded_body(response, MAX_RESPONSE as usize).await?;
-        let reply: OllamaReply = serde_json::from_slice(&bytes)
-            .map_err(|_| "Ollama returned an invalid response".to_string())?;
-        if !reply.done {
-            return Err("Ollama returned an incomplete response".into());
-        }
-        let decision: SemanticDecision = serde_json::from_str(&reply.response)
-            .map_err(|_| "Ollama did not return the required retake decision".to_string())?;
+        let decision = parse_ollama_decision(&bytes)?;
         if decision.retake {
             let mut group = hypothesis.clone();
             group.attempts[0].complete = decision.first_complete;
@@ -622,6 +641,26 @@ mod tests {
         let prompt = ollama_prompt(&window(), &window().hypotheses[0]);
         assert!(prompt.contains("First: POST"));
         assert!(prompt.contains("Second: PUT"));
+    }
+    #[test]
+    fn ollama_requests_a_non_thinking_decision() {
+        let w = window();
+        let request = ollama_request("gemma4:12B", &w, &w.hypotheses[0]);
+        assert_eq!(request["think"], false);
+        assert_eq!(request["stream"], false);
+
+        let decision = parse_ollama_decision(
+            br#"{"response":"{\"retake\":true,\"firstComplete\":true,\"lastComplete\":true}","done":true,"done_reason":"stop"}"#,
+        )
+        .unwrap();
+        assert!(decision.retake);
+
+        let error = parse_ollama_decision(
+            br#"{"response":"","thinking":"reasoning","done":true,"done_reason":"length"}"#,
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("thinking"));
     }
     #[tokio::test]
     async fn detects_corrupt_model_files() {
