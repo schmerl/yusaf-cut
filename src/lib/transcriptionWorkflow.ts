@@ -2,7 +2,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { projectSession, replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import type { Project, Word } from "./edl";
-import { createSnapshot, transcribe, type TranscribeOptions } from "./ipc";
+import { createSnapshot, recordTranscriptionApplication, transcribe, type TranscribeOptions } from "./ipc";
 import { saveProjectRevision } from "./projectSaves";
 import { normalizeTranscript, validateProjectTranscripts } from "./transcript";
 import { readTranscriptCache, writeTranscriptCache } from "./transcriptCache";
@@ -83,6 +83,7 @@ export async function runTranscription(
   const expected = request.project;
   let next = expected;
   const cacheWrites: { mediaId: string; words: Word[] }[] = [];
+  const diagnosticRuns: { runId: string; mediaId: string }[] = [];
   let transcribedClips = 0;
   for (const mediaId of request.mediaIds) {
     assertTranscriptionCurrent(request);
@@ -104,9 +105,15 @@ export async function runTranscription(
           mediaPath: media.path,
           mediaDuration: media.duration,
         });
+    if ("diagnosticRunId" in result && result.diagnosticRunId) {
+      diagnosticRuns.push({ runId: result.diagnosticRunId, mediaId });
+      await recordTranscriptionApplication(result.diagnosticRunId, "received", result.words.length).catch(() => {});
+    }
     assertTranscriptionCurrent(request);
     if (result.mediaId !== mediaId)
       throw new Error("Recognition returned a different clip. No transcript was replaced.");
+    if (!result.words.length && settings.engine === "crisper-whisper")
+      throw new Error("CrisperWhisper returned no words. See transcription diagnostics in the app data directory.");
     next = {
       ...next,
       segments: next.segments.map((segment) => {
@@ -134,6 +141,10 @@ export async function runTranscription(
     usePlayerStore.getState().reset();
     for (const { mediaId, words } of cacheWrites)
       writeTranscriptCache(expected.media[mediaId]!, words);
+    for (const { runId, mediaId } of diagnosticRuns) {
+      const appliedWords = next.segments.filter((s) => s.mediaId === mediaId).reduce((n, s) => n + s.words.length, 0);
+      await recordTranscriptionApplication(runId, "applied", appliedWords).catch(() => {});
+    }
   }
   const totalWords = next.segments
     .filter((s) => request.mediaIds.includes(s.mediaId))

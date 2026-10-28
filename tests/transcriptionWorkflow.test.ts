@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { createSnapshot, saveProject, transcribe } from "@/lib/ipc";
+import { createSnapshot, recordTranscriptionApplication, saveProject, transcribe } from "@/lib/ipc";
 import {
   captureTranscription,
   correctedOccurrences,
@@ -22,6 +22,7 @@ vi.mock("@/lib/ipc", () => ({
   createSnapshot: vi.fn(),
   saveProject: vi.fn(),
   transcribe: vi.fn(),
+  recordTranscriptionApplication: vi.fn().mockResolvedValue(undefined),
 }));
 const settings = { modelName: "base" as const };
 const words: Word[] = [
@@ -62,6 +63,16 @@ beforeEach(() => {
     words,
     engine: "whisper-cpp",
   }));
+  vi.mocked(recordTranscriptionApplication).mockResolvedValue(undefined);
+});
+
+it("records when CrisperWhisper output reaches and updates the project", async () => {
+  vi.mocked(transcribe).mockResolvedValueOnce({
+    mediaId: "m1", words, engine: "crisper-whisper", diagnosticRunId: "run-id",
+  });
+  await runTranscription(captureTranscription(true), { engine: "crisper-whisper", modelName: "medium" });
+  expect(recordTranscriptionApplication).toHaveBeenCalledWith("run-id", "received", words.length);
+  expect(recordTranscriptionApplication).toHaveBeenCalledWith("run-id", "applied", expect.any(Number));
 });
 
 describe("snapshot-first preflight", () => {

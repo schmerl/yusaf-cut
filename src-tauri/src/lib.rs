@@ -41,6 +41,7 @@ pub fn run() {
             commands::media::start_native_recording,
             commands::media::stop_native_recording,
             commands::transcribe::transcribe,
+            commands::transcribe::record_transcription_application,
             commands::transcribe::list_models,
             commands::transcribe::download_model,
             commands::transcribe::delete_model,

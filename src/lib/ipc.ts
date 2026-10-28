@@ -70,6 +70,12 @@ export interface TranscribeResult {
   mediaId: string;
   words: Word[];
   engine: TranscriptionEngine;
+  diagnosticRunId?: string;
+}
+
+/** Best-effort checkpoint showing that the frontend received or applied bridge output. */
+export function recordTranscriptionApplication(runId: string, phase: "received" | "applied", wordCount: number): Promise<void> {
+  return invoke<void>("record_transcription_application", { runId, phase, wordCount });
 }
 
 /** Kick off a transcription. Resolves when complete; subscribe to progress events
