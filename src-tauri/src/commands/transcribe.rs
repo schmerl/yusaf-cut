@@ -40,6 +40,23 @@ pub enum TranscriptionEngine {
     CrisperWhisper,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrisperDevice {
+    #[default]
+    Cpu,
+    Mps,
+}
+
+impl CrisperDevice {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Mps => "mps",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // WhisperModel (whisper.cpp / GGML)
 // ---------------------------------------------------------------------------
@@ -134,6 +151,9 @@ pub struct TranscribeOpts {
     /// Engine-specific model size or slug.
     #[serde(rename = "modelName")]
     pub model_name: String,
+    /// CrisperWhisper inference device; omitted callers retain the CPU path.
+    #[serde(default)]
+    pub device: CrisperDevice,
     /// Total media duration in seconds — used to emit accurate 0..1 progress.
     #[serde(rename = "mediaDuration", default)]
     pub media_duration: f64,
@@ -555,6 +575,7 @@ pub async fn transcribe(
     if opts.engine == TranscriptionEngine::CrisperWhisper {
         diagnostic_event(&app, job.id(), "started", json!({
             "engine": "crisper-whisper", "model": opts.model_name,
+            "device": opts.device.as_str(),
             "mediaDurationSeconds": opts.media_duration,
             "language": opts.language.as_deref().unwrap_or("auto"),
         }));
@@ -691,7 +712,7 @@ async fn transcribe_crisper_whisper(
     let child = app.shell()
         .sidecar("crisperwhisper-cli")
         .map_err(|e| format!("CrisperWhisper sidecar unavailable: {e}"))?
-        .args([wav_path, &opts.model_name, language, diagnostics_arg, job.id()])
+        .args([wav_path, &opts.model_name, language, diagnostics_arg, job.id(), opts.device.as_str()])
         .output();
     tokio::pin!(child);
     let started_at = std::time::Instant::now();

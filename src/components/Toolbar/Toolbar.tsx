@@ -30,6 +30,7 @@ import {
   stopNativeRecording,
   type ModelInfo,
   type RecordingMode,
+  type CrisperDevice,
   type TranscriptionEngine,
   type WhisperModel,
 } from "@/lib/ipc";
@@ -151,6 +152,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const [selectedModel, setSelectedModel] = useState<WhisperModel>("large-v3-turbo");
   const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper-cpp");
   const [crisperModel, setCrisperModel] = useState<"small" | "medium" | "large" | "turbo">("medium");
+  const [crisperDevice, setCrisperDevice] = useState<CrisperDevice>("mps");
   const [transcribeLanguage, setTranscribeLanguage] = useState("auto");
   const [transcribeTranslate, setTranscribeTranslate] = useState(false);
   const [transcribeDiarize, setTranscribeDiarize] = useState(false);
@@ -325,6 +327,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       const result = await runTranscription(request, {
         engine: selectedEngine,
         modelName: selectedEngine === "crisper-whisper" ? crisperModel : selectedModel,
+        device: selectedEngine === "crisper-whisper" ? crisperDevice : undefined,
         language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
         translate: selectedEngine === "whisper-cpp" && transcribeTranslate,
         diarize: selectedEngine === "whisper-cpp" && transcribeDiarize,
@@ -550,6 +553,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     const settings = {
       engine: selectedEngine,
       modelName: selectedEngine === "crisper-whisper" ? crisperModel : selectedModel,
+      device: selectedEngine === "crisper-whisper" ? crisperDevice : undefined,
       language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
       translate: selectedEngine === "whisper-cpp" && transcribeTranslate,
       diarize: selectedEngine === "whisper-cpp" && transcribeDiarize,
@@ -1092,6 +1096,17 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             <p className="text-xs text-muted-foreground">
               The first run can take several minutes while the local model downloads.
             </p>
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              CrisperWhisper processing
+              <select
+                className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                value={crisperDevice}
+                onChange={(event) => setCrisperDevice(event.target.value as CrisperDevice)}
+              >
+                <option value="mps">Apple GPU (MPS) · faster on supported Macs</option>
+                <option value="cpu">CPU · compatibility option</option>
+              </select>
+            </label>
           </div>}
 
           {/* ── Language / options ── */}

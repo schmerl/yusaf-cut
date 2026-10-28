@@ -72,6 +72,19 @@ it("Proceed replaces corrected text without claiming to create a snapshot", asyn
   expect(createSnapshot).not.toHaveBeenCalled();
   expect(saveProject).not.toHaveBeenCalled();
 });
+
+it.each(["mps", "cpu"] as const)("passes the selected CrisperWhisper %s device to recognition", async (device) => {
+  render(<Toolbar />);
+  fireEvent.click(screen.getByRole("button", { name: "Re-Transcribe" }));
+  await screen.findByRole("dialog", { name: "Re-Transcribe" });
+  fireEvent.change(screen.getByLabelText("Transcription engine"), { target: { value: "crisper-whisper" } });
+  fireEvent.change(screen.getByLabelText("CrisperWhisper processing"), { target: { value: device } });
+  fireEvent.click(screen.getByRole("button", { name: "Re-Transcribe" }));
+  await screen.findByRole("dialog", { name: "Replace existing transcript?" });
+  fireEvent.click(screen.getByRole("button", { name: "Proceed" }));
+  await waitFor(() => expect(transcribe).toHaveBeenCalledOnce());
+  expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ engine: "crisper-whisper", device }));
+});
 it("Snapshot first saves an unsaved project and snapshots corrections before recognition", async () => {
   vi.mocked(saveDialog).mockResolvedValue("/tmp/protected.scribe");
   const original = useProjectStore.getState().project;

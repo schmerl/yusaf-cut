@@ -25,6 +25,7 @@ if sys.argv[1:] == ["--probe"]:
 wav_path, model_size, language = sys.argv[1:4]
 diagnostics_path = sys.argv[4] if len(sys.argv) > 4 else None
 run_id = sys.argv[5] if len(sys.argv) > 5 else None
+device = sys.argv[6] if len(sys.argv) > 6 else "cpu"
 
 
 def diagnostic(phase, **details):
@@ -49,10 +50,24 @@ def diagnostic(phase, **details):
 try:
     started = time.monotonic()
     diagnostic("bridge_started")
+    if device not in ("cpu", "mps"):
+        raise ValueError("device must be cpu or mps")
+    diagnostic("device_selected", device=device)
     from crisperwhisper import CrisperWhisperModel
     diagnostic("library_imported", elapsedSeconds=time.monotonic() - started)
-    model = CrisperWhisperModel(model_size, backend="transformers")
-    diagnostic("model_loaded", elapsedSeconds=time.monotonic() - started)
+    if device == "mps":
+        import transformers
+        if transformers.__version__ == "5.21.0":
+            # This version's MPS-only deferred stop path assumes a decoder
+            # cache has `.layers`; Whisper returns EncoderDecoderCache instead.
+            # Use the ordinary synchronous stop check for this experiment.
+            from transformers.generation import utils as generation_utils
+            generation_utils.DeferredStopCheck.is_supported = staticmethod(
+                lambda *args, **kwargs: False
+            )
+            diagnostic("mps_deferred_stop_disabled", transformersVersion=transformers.__version__)
+    model = CrisperWhisperModel(model_size, backend="transformers", device=device)
+    diagnostic("model_loaded", elapsedSeconds=time.monotonic() - started, device=device)
     if diagnostics_path and run_id:
         from crisperwhisper_trace import install_chunk_tracing
         install_chunk_tracing(model, diagnostic)
