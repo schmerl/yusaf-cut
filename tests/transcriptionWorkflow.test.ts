@@ -139,6 +139,23 @@ describe("snapshot-first preflight", () => {
 });
 
 describe("transactional recognition", () => {
+  it("passes CrisperWhisper settings through and keeps filler words in the project", async () => {
+    const filler: Word = { id: "filler", text: "[UM]", start: 0.1, end: 0.3, confidence: 1 };
+    vi.mocked(transcribe).mockImplementationOnce(async ({ mediaId }) => ({
+      mediaId,
+      words: [filler, { ...words[0]!, start: 0.35 }, words[1]!],
+      engine: "crisper-whisper",
+    }));
+    const options = {
+      engine: "crisper-whisper" as const,
+      modelName: "medium" as const,
+      pythonPath: "/tmp/crisper-bench/bin/python",
+      language: "en",
+    };
+    const result = await runTranscription(captureTranscription(true), options);
+    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining(options));
+    expect(projectTranscript(result.project)[0]!.text).toContain("[UM]");
+  });
   it("detects occurrence corrections, not merely normalized metadata", () => {
     expect(correctedOccurrences(captureTranscription(true))).toBe(1);
     const p = structuredClone(fixture) as Project;
@@ -247,6 +264,27 @@ it("uses only raw cache data for an untranscribed occurrence without invoking re
   expect(transcribe).not.toHaveBeenCalled();
   expect(result.project.segments[0]).toBe(p.segments[0]);
   expect(projectTranscript(result.project)[1]!.text).toBe("New originals.");
+});
+
+it("does not reuse or replace the legacy Whisper cache for CrisperWhisper", async () => {
+  const p = structuredClone(fixture) as Project;
+  p.segments[1] = { ...p.segments[1]!, words: [], transcript: undefined };
+  replaceProjectBaseline(p);
+  writeTranscriptCache(p.media.m1!, words);
+  const filler: Word = { id: "filler", text: "[UM]", start: 0.1, end: 0.3, confidence: 1 };
+  vi.mocked(transcribe).mockImplementationOnce(async ({ mediaId }) => ({
+    mediaId,
+    words: [filler],
+    engine: "crisper-whisper",
+  }));
+  const result = await runTranscription(captureTranscription(false), {
+    engine: "crisper-whisper",
+    modelName: "medium",
+    pythonPath: "/tmp/crisper-bench/bin/python",
+  });
+  expect(transcribe).toHaveBeenCalledOnce();
+  expect(projectTranscript(result.project)[1]!.text).toBe("[UM]");
+  expect(readTranscriptCache(p.media.m1!)).toEqual(words);
 });
 
 it("rejects a project switch during the unsaved Save dialog without writing anything", async () => {

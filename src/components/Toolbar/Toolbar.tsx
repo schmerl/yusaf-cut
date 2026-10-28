@@ -30,6 +30,7 @@ import {
   stopNativeRecording,
   type ModelInfo,
   type RecordingMode,
+  type TranscriptionEngine,
   type WhisperModel,
 } from "@/lib/ipc";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -148,6 +149,9 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<WhisperModel>("large-v3-turbo");
+  const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper-cpp");
+  const [crisperModel, setCrisperModel] = useState<"small" | "medium" | "large" | "turbo">("medium");
+  const [crisperPython, setCrisperPython] = useState(() => localStorage.getItem("crisperPython") ?? "");
   const [transcribeLanguage, setTranscribeLanguage] = useState("auto");
   const [transcribeTranslate, setTranscribeTranslate] = useState(false);
   const [transcribeDiarize, setTranscribeDiarize] = useState(false);
@@ -289,6 +293,10 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   }
 
   async function ensureSelectedModelInstalled() {
+    if (selectedEngine === "crisper-whisper") {
+      if (!crisperPython.trim()) throw new Error("Choose your CrisperWhisper Python executable.");
+      return;
+    }
     const info = await listModels();
     setInstalledModels(info);
     const installed = info.find((m) => m.name === selectedModel)?.installed ?? false;
@@ -319,11 +327,12 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       setTranscribeProgress(0);
       await ensureSelectedModelInstalled();
       const result = await runTranscription(request, {
-        engine: "whisper-cpp",
-        modelName: selectedModel,
+        engine: selectedEngine,
+        modelName: selectedEngine === "crisper-whisper" ? crisperModel : selectedModel,
+        pythonPath: selectedEngine === "crisper-whisper" ? crisperPython.trim() : undefined,
         language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
-        translate: transcribeTranslate,
-        diarize: transcribeDiarize,
+        translate: selectedEngine === "whisper-cpp" && transcribeTranslate,
+        diarize: selectedEngine === "whisper-cpp" && transcribeDiarize,
       });
       pushToast({ title: "Recording transcribed", description: `${result.totalWords} words` });
       if (result.totalWords > 0) await autoDetectPauses(media.path, result.project);
@@ -544,11 +553,12 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     setTranscriptionBusy(true);
     setReplacementError("");
     const settings = {
-      engine: "whisper-cpp" as const,
-      modelName: selectedModel,
+      engine: selectedEngine,
+      modelName: selectedEngine === "crisper-whisper" ? crisperModel : selectedModel,
+      pythonPath: selectedEngine === "crisper-whisper" ? crisperPython.trim() : undefined,
       language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
-      translate: transcribeTranslate,
-      diarize: transcribeDiarize,
+      translate: selectedEngine === "whisper-cpp" && transcribeTranslate,
+      diarize: selectedEngine === "whisper-cpp" && transcribeDiarize,
     };
     try {
       assertTranscriptionCurrent(request);
@@ -561,7 +571,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       assertTranscriptionCurrent(request);
       setReplacementRequest(null);
       setTranscribeProgress(0);
-      if (!installedModels.find((m) => m.name === settings.modelName)?.installed) {
+      if (settings.engine === "whisper-cpp" && !installedModels.find((m) => m.name === settings.modelName)?.installed) {
         await downloadModel("whisper-cpp", settings.modelName);
         assertTranscriptionCurrent(request);
       }
@@ -973,15 +983,25 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             </DialogDescription>
           </DialogHeader>
 
-          {/* ── Engine info ── */}
+          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+            Transcription engine
+            <select
+              className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+              value={selectedEngine}
+              onChange={(event) => setSelectedEngine(event.target.value as TranscriptionEngine)}
+            >
+              <option value="whisper-cpp">Whisper.cpp · Core ML</option>
+              <option value="crisper-whisper">CrisperWhisper 2 · verbatim</option>
+            </select>
+          </label>
           <p className="text-xs text-muted-foreground rounded-md border border-border px-3 py-2">
-            <span className="font-semibold text-foreground">whisper.cpp · Core ML</span> — runs 100%
-            locally with Apple Silicon acceleration. Tight word-level timestamps for accurate
-            video/text sync.
+            {selectedEngine === "crisper-whisper"
+              ? "Preserves audible fillers and repeats. Runs locally through your installed Python environment; its model is downloaded by Hugging Face on first use. Model weights have a non-commercial research license."
+              : "Runs locally with Apple Silicon acceleration and word-level timestamps."}
           </p>
 
           {/* ── Model list ── */}
-          <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
+          {selectedEngine === "whisper-cpp" ? <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
             {MODELS.map((m) => {
               const installed = installedModels.find((i) => i.name === m.name)?.installed ?? false;
               const isDownloading = downloadingModel === m.name;
@@ -1061,7 +1081,45 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                 </div>
               );
             })}
-          </div>
+          </div> : <div className="grid gap-3 rounded-md border border-border p-3">
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              CrisperWhisper model
+              <select
+                className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                value={crisperModel}
+                onChange={(event) => setCrisperModel(event.target.value as typeof crisperModel)}
+              >
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+                <option value="turbo">Turbo</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              Python executable with crisperwhisper installed
+              <span className="flex gap-2">
+                <input
+                  className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm text-foreground"
+                  placeholder="/path/to/venv/bin/python"
+                  value={crisperPython}
+                  onChange={(event) => {
+                    setCrisperPython(event.target.value);
+                    localStorage.setItem("crisperPython", event.target.value);
+                  }}
+                />
+                <Button type="button" size="sm" variant="outline" onClick={async () => {
+                  const path = await openDialog({ title: "Choose CrisperWhisper Python executable" });
+                  if (typeof path === "string") {
+                    setCrisperPython(path);
+                    localStorage.setItem("crisperPython", path);
+                  }
+                }}>Browse</Button>
+              </span>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Select the Python inside the environment where you installed crisperwhisper.
+            </p>
+          </div>}
 
           {/* ── Language / options ── */}
           <div className="grid gap-3 rounded-md border border-border p-3">
@@ -1081,7 +1139,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             </label>
 
             {/* translate + diarize */}
-            <div className="flex flex-col gap-2">
+            {selectedEngine === "whisper-cpp" && <div className="flex flex-col gap-2">
               <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <input
                   type="checkbox"
@@ -1106,7 +1164,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                   <span className="ml-1 text-muted-foreground">— label who is speaking</span>
                 </span>
               </label>
-            </div>
+            </div>}
           </div>
 
           <DialogFooter>
@@ -1121,7 +1179,9 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
               onClick={startTranscribe}
               disabled={
                 downloadingModel !== null ||
-                !installedModels.find((m) => m.name === selectedModel)?.installed
+                (selectedEngine === "whisper-cpp"
+                  ? !installedModels.find((m) => m.name === selectedModel)?.installed
+                  : !crisperPython.trim())
               }
               variant={forceRetranscribeRef.current ? "destructive" : "default"}
             >

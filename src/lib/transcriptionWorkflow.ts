@@ -91,7 +91,11 @@ export async function runTranscription(
     );
     if (!targets.length) continue;
     const media = expected.media[mediaId]!;
-    const cached = request.force ? null : readTranscriptCache(media);
+    // The legacy raw cache contains whisper.cpp output without engine metadata.
+    // Never reuse or overwrite it for the opt-in CrisperWhisper provider.
+    const cached = request.force || settings.engine === "crisper-whisper"
+      ? null
+      : readTranscriptCache(media);
     const result = cached
       ? { mediaId, words: cached }
       : await transcribe({
@@ -119,7 +123,8 @@ export async function runTranscription(
       updatedAt: new Date().toISOString(),
     };
     validateProjectTranscripts(next);
-    if (!cached) cacheWrites.push({ mediaId, words: result.words });
+    if (!cached && settings.engine !== "crisper-whisper")
+      cacheWrites.push({ mediaId, words: result.words });
     transcribedClips++;
   }
   assertTranscriptionCurrent(request);

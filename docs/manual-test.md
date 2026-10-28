@@ -18,6 +18,26 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 - [ ] Click any word → video seeks to that timestamp
 - [ ] Words highlight as the video plays
 
+### Optional CrisperWhisper 2 provider
+
+Install `crisperwhisper[transformers]` in a Python 3.11 or 3.12 virtual
+environment. In **Transcription settings**, select **CrisperWhisper 2 · verbatim**,
+choose **Medium**, and browse to that environment's `bin/python`. The app
+extracts audio as before and asks CrisperWhisper for word timestamps. Its first
+run may download model weights into the Hugging Face cache. The standard weights
+have a non-commercial research license; they are not bundled with YusafCut.
+
+- [ ] Transcribe a clip with audible fillers and repeats; verify `[UM]`/`[UH]`
+      and both attempts appear as editable, timed words.
+- [ ] Check punctuation and technical terms, then seek by clicking those words.
+- [ ] Re-Transcribe an edited project; snapshot protection still appears.
+- [ ] Switch back to whisper.cpp and transcribe another clip.
+
+Transformers may print a load report for `encoder_blank_head` and warnings about
+generation arguments or tokenizer cleanup. These come from the installed Python
+packages and do not indicate failure when a transcript is returned. A Python
+exception or a nonzero exit status is reported as a transcription error.
+
 ## Edit
 
 - [ ] Follow the [Phases 2–4 native checkpoint](manual-transcript-corrections.md)

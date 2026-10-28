@@ -1,7 +1,7 @@
 //! Transcription engine parsers.
 //!
 //! The actual binary invocations are in `commands::transcribe`. This module
-//! contains pure JSON parsers for whisper.cpp `--output-json-full` format.
+//! contains pure JSON parsers for whisper.cpp and CrisperWhisper output.
 //!
 //! WhisperKit was removed in v3.2.0 — restore from commit 4726d25 if needed.
 //!
@@ -12,6 +12,40 @@ use crate::edl::Word;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use uuid::Uuid;
+
+#[derive(Debug, Deserialize)]
+struct CrisperWord {
+    text: String,
+    start: f64,
+    end: f64,
+}
+
+/// Parse the bridge's word-level result without treating `[UM]` and `[UH]`
+/// as metadata. Those are spoken filler tokens in CrisperWhisper's output.
+pub fn parse_crisper_words(json: &str) -> Result<Vec<Word>> {
+    let parsed: Vec<CrisperWord> = serde_json::from_str(json).context("invalid CrisperWhisper JSON")?;
+    parsed
+        .into_iter()
+        .map(|word| {
+            if word.text.trim().is_empty()
+                || !word.start.is_finite()
+                || !word.end.is_finite()
+                || word.start < 0.0
+                || word.end <= word.start
+            {
+                anyhow::bail!("invalid CrisperWhisper word or timestamp");
+            }
+            Ok(Word {
+                id: Uuid::new_v4().to_string(),
+                text: word.text,
+                start: word.start,
+                end: word.end,
+                confidence: 1.0, // The API does not provide calibrated per-word confidence.
+                speaker: None,
+            })
+        })
+        .collect()
+}
 
 #[derive(Debug, Deserialize)]
 struct WhisperJson {
@@ -126,6 +160,16 @@ fn ms_to_sec(ms: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crisper_words_preserve_fillers_repeats_and_punctuation() {
+        let words = parse_crisper_words(r#"[{"text":"[UM]","start":1.16,"end":1.28},{"text":"requests","start":8.24,"end":8.48},{"text":"requests","start":9.36,"end":9.85},{"text":"REST,","start":20.4,"end":20.66}]"#).unwrap();
+        assert_eq!(words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            vec!["[UM]", "requests", "requests", "REST,"]);
+        assert_eq!(words[2].start, 9.36);
+        assert_eq!(words[3].end, 20.66);
+        assert!(parse_crisper_words(r#"[{"text":"bad","start":2,"end":1}]"#).is_err());
+    }
 
     #[test]
     fn parses_minimal_whisper_output() {

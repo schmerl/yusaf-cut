@@ -1,10 +1,10 @@
 //! Transcription commands:
-//!   - `transcribe`     — extract 16kHz mono WAV, run whisper-cli, parse JSON, emit progress
+//!   - `transcribe`     — extract 16kHz mono WAV, run selected recognizer, emit progress
 //!   - `list_models`    — what is installed locally, what needs downloading
 //!   - `download_model` — fetch a model from Hugging Face
 //!
-//! Only whisper.cpp is supported (via the `whisper-cli` sidecar with Core ML + Metal).
-//! WhisperKit was removed in v3.2.0 — restore from commit 4726d25 if needed.
+//! whisper.cpp uses the bundled `whisper-cli` sidecar. CrisperWhisper uses an
+//! external Python environment selected by the user.
 //!
 //! Progress events are emitted on the channel `transcribe:progress` and
 //! `model:download:progress`. Frontend subscribes via `ipc.ts`.
@@ -12,7 +12,7 @@
 use crate::AppState;
 use crate::edl::Word;
 use crate::jobs::JobKind;
-use crate::transcribe::parse_whisper_json;
+use crate::transcribe::{parse_crisper_words, parse_whisper_json};
 use futures_util::StreamExt as _;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -21,12 +21,13 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
+use tokio::process::Command;
 
 // ---------------------------------------------------------------------------
 // TranscriptionEngine
 // ---------------------------------------------------------------------------
 
-/// Transcription backend. whisper.cpp only since v3.2.0.
+/// Local transcription backend.
 ///
 /// WhisperKit was removed because ANE-quantized models produced less accurate
 /// word timestamps, causing video/text drift. To restore it, see commit 4726d25.
@@ -35,6 +36,7 @@ use tokio::io::AsyncWriteExt as _;
 pub enum TranscriptionEngine {
     #[default]
     WhisperCpp,
+    CrisperWhisper,
 }
 
 // ---------------------------------------------------------------------------
@@ -125,12 +127,14 @@ pub struct TranscribeOpts {
     pub media_id: String,
     #[serde(rename = "mediaPath")]
     pub media_path: String,
-    /// Always "whisper-cpp" since v3.2.0.
+    /// Defaults to whisper.cpp for existing callers.
     #[serde(rename = "engine", default)]
     pub engine: TranscriptionEngine,
-    /// WhisperModel slug in kebab-case, e.g. "large-v3-turbo".
+    /// Engine-specific model size or slug.
     #[serde(rename = "modelName")]
     pub model_name: String,
+    #[serde(rename = "pythonPath", default)]
+    pub python_path: Option<String>,
     /// Total media duration in seconds — used to emit accurate 0..1 progress.
     #[serde(rename = "mediaDuration", default)]
     pub media_duration: f64,
@@ -518,7 +522,7 @@ pub async fn transcribe(
         .create(
             &app,
             JobKind::Transcribe,
-            format!("Transcribing (whisper.cpp) — {}", &opts.model_name),
+            format!("Transcribing ({:?}) — {}", opts.engine, &opts.model_name),
         )
         .await;
     job.mark_running().await;
@@ -575,8 +579,13 @@ async fn transcribe_inner(
         }
     }
 
-    // 2) Transcribe with whisper.cpp
-    let words = transcribe_whisper_cpp(app, opts, job, &wav).await?;
+    // 2) Run the selected local recognizer against the same extracted audio.
+    let result = match opts.engine {
+        TranscriptionEngine::WhisperCpp => transcribe_whisper_cpp(app, opts, job, &wav).await,
+        TranscriptionEngine::CrisperWhisper => transcribe_crisper_whisper(app, opts, job, &wav).await,
+    };
+    let _ = fs::remove_file(&wav).await;
+    let words = result?;
 
     let _ = media_id;
 
@@ -597,6 +606,66 @@ async fn transcribe_inner(
         words,
         engine: opts.engine,
     })
+}
+
+// ---------------------------------------------------------------------------
+// CrisperWhisper path
+// ---------------------------------------------------------------------------
+
+async fn transcribe_crisper_whisper(
+    app: &AppHandle,
+    opts: &TranscribeOpts,
+    job: &crate::jobs::JobHandle,
+    wav: &PathBuf,
+) -> Result<Vec<Word>, String> {
+    if opts.translate || opts.diarize {
+        return Err("CrisperWhisper does not support translation or speaker diarisation here".into());
+    }
+    if !matches!(opts.model_name.as_str(), "small" | "medium" | "large" | "turbo") {
+        return Err(format!("unknown CrisperWhisper model: {}", opts.model_name));
+    }
+    let python = opts.python_path.as_deref().filter(|p| !p.is_empty())
+        .ok_or("Choose the Python executable from your CrisperWhisper environment")?;
+    if !PathBuf::from(python).is_absolute() || !PathBuf::from(python).is_file() {
+        return Err("CrisperWhisper Python path must be an existing absolute file".into());
+    }
+    let language = opts.language.as_deref().filter(|l| !l.is_empty()).unwrap_or("auto");
+    let child = Command::new(python)
+        .arg("-c")
+        .arg(include_str!("../crisperwhisper_bridge.py"))
+        .arg(wav)
+        .arg(&opts.model_name)
+        .arg(language)
+        .kill_on_drop(true)
+        .output();
+    tokio::pin!(child);
+    let started_at = std::time::Instant::now();
+    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
+    ticker.tick().await;
+    let output = loop {
+        tokio::select! {
+            result = &mut child => break result.map_err(|e| format!("starting CrisperWhisper: {e}"))?,
+            _ = ticker.tick() => {
+                let progress = synthetic_transcribe_progress(started_at.elapsed().as_secs_f64(), opts.media_duration.max(1.0));
+                app.emit("transcribe:progress", TranscribeProgress {
+                    media_id: opts.media_id.clone(),
+                    progress,
+                    current_time: progress * opts.media_duration.max(1.0),
+                }).ok();
+                job.set_progress(progress, None).await;
+            }
+        }
+    };
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        return Err(format!("CrisperWhisper failed: {}", stderr.trim()));
+    }
+    if !stderr.trim().is_empty() {
+        log::warn!("CrisperWhisper diagnostics: {}", stderr.trim());
+    }
+    let stdout = std::str::from_utf8(&output.stdout)
+        .map_err(|e| format!("CrisperWhisper output is not UTF-8: {e}"))?;
+    parse_crisper_words(stdout).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -956,5 +1025,8 @@ mod tests {
         let e: TranscriptionEngine =
             serde_json::from_str("\"whisper-cpp\"").unwrap();
         assert_eq!(e, TranscriptionEngine::WhisperCpp);
+        let e: TranscriptionEngine =
+            serde_json::from_str("\"crisper-whisper\"").unwrap();
+        assert_eq!(e, TranscriptionEngine::CrisperWhisper);
     }
 }

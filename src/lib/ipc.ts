@@ -35,12 +35,12 @@ export function stopNativeRecording(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 /**
- * Transcription engine — whisper.cpp only.
+ * Local transcription engines. whisper.cpp remains the default.
  *
  * WhisperKit (ANE) was removed in v3.2.0 due to word-timestamp inaccuracies
  * that caused video/text drift. To restore it, see commit 4726d25.
  */
-export type TranscriptionEngine = "whisper-cpp";
+export type TranscriptionEngine = "whisper-cpp" | "crisper-whisper";
 
 /** whisper.cpp GGML model names (kebab-case, matches Rust WhisperModel). */
 export type WhisperModel = "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
@@ -49,7 +49,9 @@ export interface TranscribeOptions {
   mediaId: string;
   mediaPath: string;
   engine?: TranscriptionEngine;
-  modelName: WhisperModel;
+  modelName: WhisperModel | "turbo" | "large";
+  /** Absolute Python executable in an environment with crisperwhisper[transformers]. */
+  pythonPath?: string;
   /** Total media duration in seconds — used to compute 0..1 progress. */
   mediaDuration?: number;
   /**
