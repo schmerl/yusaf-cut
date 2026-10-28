@@ -22,6 +22,9 @@ struct CrisperWord {
 
 /// Parse the bridge's word-level result without treating `[UM]` and `[UH]`
 /// as metadata. Those are spoken filler tokens in CrisperWhisper's output.
+/// CrisperWhisper permits equal start/end times for a word. Our transcript
+/// anchors require a positive interval, so preserve such words with a 1 ms
+/// placeholder interval and mark their timing confidence as unknown.
 pub fn parse_crisper_words(json: &str) -> Result<Vec<Word>> {
     let parsed: Vec<CrisperWord> = serde_json::from_str(json).context("invalid CrisperWhisper JSON")?;
     parsed
@@ -31,16 +34,19 @@ pub fn parse_crisper_words(json: &str) -> Result<Vec<Word>> {
                 || !word.start.is_finite()
                 || !word.end.is_finite()
                 || word.start < 0.0
-                || word.end <= word.start
+                || word.end < word.start
             {
                 anyhow::bail!("invalid CrisperWhisper word or timestamp");
             }
+            let zero_duration = word.end == word.start;
             Ok(Word {
                 id: Uuid::new_v4().to_string(),
                 text: word.text,
                 start: word.start,
-                end: word.end,
-                confidence: 1.0, // The API does not provide calibrated per-word confidence.
+                end: if zero_duration { word.start + 0.001 } else { word.end },
+                // The API has no calibrated confidence. Zero here marks a
+                // fabricated interval, not a judgment about the spoken word.
+                confidence: if zero_duration { 0.0 } else { 1.0 },
                 speaker: None,
             })
         })
@@ -169,6 +175,18 @@ mod tests {
         assert_eq!(words[2].start, 9.36);
         assert_eq!(words[3].end, 20.66);
         assert!(parse_crisper_words(r#"[{"text":"bad","start":2,"end":1}]"#).is_err());
+    }
+
+    #[test]
+    fn crisper_zero_duration_words_remain_anchored_and_marked_uncertain() {
+        let words = parse_crisper_words(r#"[{"text":"[UM]","start":0,"end":0},{"text":"But","start":17.7,"end":17.7},{"text":"next","start":17.7,"end":17.9}]"#).unwrap();
+        assert_eq!(words.len(), 3);
+        assert_eq!(words[0].start, 0.0);
+        assert!((words[0].end - 0.001).abs() < 1e-9);
+        assert!((words[1].end - 17.701).abs() < 1e-9);
+        assert_eq!(words[1].confidence, 0.0);
+        assert_eq!(words[2].confidence, 1.0);
+        assert!(parse_crisper_words(r#"[{"text":"bad","start":3,"end":2}]"#).is_err());
     }
 
     #[test]

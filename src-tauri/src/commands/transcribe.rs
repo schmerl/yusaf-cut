@@ -684,7 +684,7 @@ fn classify_transcription_error(error: &str) -> &'static str {
     if error.contains("ffmpeg") { "audio_extraction" }
     else if error.contains("sidecar") || error.contains("starting CrisperWhisper") { "sidecar_start" }
     else if error.contains("empty transcript") { "empty_transcript" }
-    else if error.contains("output") || error.contains("JSON") { "bridge_output" }
+    else if error.contains("output") || error.contains("JSON") || error.contains("invalid CrisperWhisper") { "bridge_output" }
     else { "inference" }
 }
 
@@ -753,6 +753,7 @@ async fn transcribe_crisper_whisper(
     let words = parse_crisper_words(stdout).map_err(|e| e.to_string())?;
     diagnostic_event(app, job.id(), "words_parsed", json!({
         "wordCount": words.len(),
+        "zeroDurationAdjusted": words.iter().filter(|w| w.confidence == 0.0).count(),
         "lastWordEndSeconds": words.last().map(|w| w.end),
     }));
     if words.is_empty() && opts.media_duration > 1.0 {
