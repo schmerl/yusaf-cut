@@ -1,6 +1,6 @@
 # Script corrections: inline workflow checkpoint
 
-Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.3`.
+Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.4`.
 The earlier walkthrough found slow audio analysis, excessive panels, missing native
 Undo/Redo, lost transcript position after cutting, and an Undo → Keep error. This
 checkpoint addresses that workflow. **The complete automatic correction feature
@@ -56,12 +56,19 @@ Autosave affects the disposable project, so use the specified paths.
    `/private/tmp/yusafcut-script-study/script-openapi.md`. Close the script dialog.
    There should be no persistent script panel occupying the transcript.
 
-3. Use **Edit → Find / Replace** (⌘F), search for `valid Jason`, then close search.
-   Select that complete spoken paragraph and click **Check selection** (or
-   Review → Find Differences in Selection). Time how long it takes to show a dashed
-   marker. There should be no Whisper job or audio wait. Click the JSON candidate:
-   expect a small replacement popover. **Play** listens without deciding; **Accept**
-   changes only the text. Duration must stay fixed.
+3. After importing the script, click **Find differences** to mark the whole
+   transcript. No selection is required. Use **Edit → Find / Replace** (⌘F), search
+   for `valid Jason`, then close search. `Jason` should have a dashed marker with
+   **Jason → JSON** as its hover context; click that word for the replacement popover.
+   **Play** listens without deciding; **Accept** changes only the text. Duration stays
+   fixed. There should be no Whisper job or audio wait.
+
+   Alternatively select that complete spoken paragraph and use **Check selection**
+   or Review → Find Differences in Selection. Moving focus to the toolbar/menu must
+   retain the passage and show a background highlight. If no script is attached,
+   **Add script… / Add script to check selection…** opens script setup rather than
+   silently disabling review. Import it, close the dialog, then check the retained
+   passage. Note roughly how long suggestions take to appear.
 
 4. Use native **Edit → Undo**, then **Redo**. Try the visible buttons too. Both
    should reverse/reapply the correction and marker together. Save and reopen the
@@ -113,7 +120,7 @@ See the [acceptance audit](script-corrections-acceptance.md) and
 text-only suggestions without recognizer calls, retained audio evidence, optional
 script opening, native menu command/history wiring, inline review/captions,
 preview/commit identity, scroll preservation, Undo → Keep, and stale audio estimates.
-Validation: typechecking/lint, 303 frontend tests and 66 Rust tests pass, and the
+Validation: typechecking/lint, 308 frontend tests and 66 Rust tests pass, and the
 debug macOS app builds. Native UI automation was not approved for YusafCut, so its
 running menus, focus behavior and audible joins were not inspected automatically.
 Original study project hashes still match; private recordings/scripts/labels remain

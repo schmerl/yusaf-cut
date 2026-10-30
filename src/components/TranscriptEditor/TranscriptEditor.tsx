@@ -94,6 +94,7 @@ export function TranscriptEditor({
   onFindClose,
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
+  const session = useProjectStore(() => projectSession());
   const reviewOpen = useUIStore((s) => s.fillerReviewOpen);
   const reviewId = useUIStore((s) => s.fillerReviewCandidateId);
   const reviewIdRef = useRef(reviewId);
@@ -118,6 +119,7 @@ export function TranscriptEditor({
       from: number;
       to: number;
       status: string;
+      label: string;
     }[];
   } | null>(null);
   const pauseTokens = useProjectStore((s) => s.pauseTokens);
@@ -135,6 +137,15 @@ export function TranscriptEditor({
   const [error, setError] = useState("");
   const future = useTemporalProjectStore((s) => s.futureStates);
   const [selection, setSelection] = useState<TextRange[]>([]);
+  const selectionRef = useRef<TextRange[]>([]);
+  const leavingEditor = useRef(false);
+  function rememberSelection(ranges: TextRange[]) {
+    selectionRef.current = ranges;
+    setSelection(ranges);
+  }
+  function actionRanges(editor: Editor) {
+    return leavingEditor.current ? selectionRef.current : selectedRanges(editor);
+  }
   const searchResults = useRef<{
     project: Project;
     matches: TranscriptMatch[];
@@ -162,7 +173,7 @@ export function TranscriptEditor({
     endTypingGroup();
     try {
       if (composed.current) throw new Error("Finish typing before cutting speech.");
-      const ranges = selectedRanges(editor);
+      const ranges = actionRanges(editor);
       if (!ranges.length) throw new Error("Select the words or complete corrected phrase to cut.");
       useProjectStore.getState().cutSpeech(ranges, model.current);
       setError("");
@@ -225,6 +236,12 @@ export function TranscriptEditor({
                           ? [
                               {
                                 id: record.id,
+                                label:
+                                  record.beforeText !== record.afterText
+                                    ? `${record.beforeText} → ${record.afterText}`
+                                    : record.status === "off-script"
+                                      ? "Possible off-script speech"
+                                      : "Uncertain script match",
                                 segmentId: location.block.segmentId,
                                 blockId: location.block.id,
                                 from: location.from,
@@ -284,6 +301,20 @@ export function TranscriptEditor({
                         { key: `${block.segmentId}:${block.id}:time`, side: -1 },
                       ),
                     );
+                    if (leavingEditor.current) {
+                      for (const range of selectionRef.current) {
+                        if (
+                          range.segmentId === block.segmentId &&
+                          range.blockId === block.id &&
+                          range.to <= node.content.size
+                        )
+                          decorations.push(
+                            Decoration.inline(pos + 1 + range.from, pos + 1 + range.to, {
+                              class: "is-passage-selected",
+                            }),
+                          );
+                      }
+                    }
                     const search = searchResults.current;
                     for (const marker of projectionCache.current!.scripts) {
                       if (marker.segmentId === block.segmentId && marker.blockId === block.id)
@@ -293,8 +324,8 @@ export function TranscriptEditor({
                             "data-script-record": marker.id,
                             role: "button",
                             tabindex: "0",
-                            "aria-label": "Review script suggestion",
-                            title: `${marker.status === "applied" ? "Automatic correction" : marker.status === "off-script" ? "Off-script speech" : "Pending script suggestion"} — click to review`,
+                            "aria-label": marker.label,
+                            title: marker.label,
                           }),
                         );
                     }
@@ -524,10 +555,12 @@ export function TranscriptEditor({
     const doc = editor.schema.nodeFromJSON(
       json.content.length ? json : { type: "doc", content: [{ type: "paragraph" }] },
     );
+    if (!sameSession) rememberSelection([]);
     if (!desiredCaret.current && doc.eq(editor.state.doc)) {
       editor.view.dispatch(editor.state.tr.setMeta("projection", true));
       return;
     }
+    rememberSelection([]);
     const previous = editor.state.selection;
     const logical = desiredCaret.current ?? {
       segmentId: previous.$from.parent.attrs.segmentId as string,
@@ -595,8 +628,20 @@ export function TranscriptEditor({
         if (editorRef.current) sync(editorRef.current, useProjectStore.getState().project);
       }
     },
+    onBlur: ({ editor }) => {
+      leavingEditor.current = true;
+      const ranges = selectedRanges(editor);
+      rememberSelection(ranges.length ? ranges : selectionRef.current);
+    },
+    onFocus: ({ editor }) => {
+      leavingEditor.current = false;
+      rememberSelection(selectedRanges(editor));
+      editor.view.dispatch(editor.state.tr.setMeta("passageSelection", true));
+    },
     onSelectionUpdate: ({ editor, transaction }) => {
-      setSelection(selectedRanges(editor));
+      const ranges = selectedRanges(editor);
+      if (ranges.length || !leavingEditor.current || transaction.docChanged)
+        rememberSelection(ranges);
       if (!transaction.docChanged || !editor.state.selection.empty) endTypingGroup();
     },
   });
@@ -604,21 +649,41 @@ export function TranscriptEditor({
 
   useEffect(() => {
     if (!editor) return;
+    const capture = (event: MouseEvent) => {
+      const outside = !editor.view.dom.contains(event.target as Node);
+      if (!outside && leavingEditor.current) rememberSelection([]);
+      leavingEditor.current = outside;
+      if (outside) {
+        const ranges = selectedRanges(editor);
+        if (ranges.length) rememberSelection(ranges);
+      }
+    };
+    document.addEventListener("mousedown", capture, true);
+    return () => document.removeEventListener("mousedown", capture, true);
+  }, [editor]);
+  useEffect(() => {
+    if (editor && !editor.isDestroyed)
+      editor.view.dispatch(editor.state.tr.setMeta("passageSelection", true));
+  }, [editor, selection]);
+  useEffect(() => {
+    if (!editor) return;
     if (composed.current) {
       if (project !== compositionBase.current) externalDuringComposition.current = true;
       return;
     }
-    if (project === local.current) {
+    if (syncedSession.current === session && project === local.current) {
       model.current = project;
       editor.view.dispatch(editor.state.tr.setMeta("projection", true));
     } else if (
+      syncedSession.current !== session ||
       model.current !== project ||
       readDocument(editor.state.doc)[0]?.blockId !== blocks[0]?.id
     ) {
       sync(editor, project);
     }
-    // sync uses no reactive state; local echo must not replace the editor document.
-  }, [editor, project, blocks]);
+    // sync reads refs and stable setters; recreating it must not replace local typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, project, blocks, session]);
   useEffect(() => {
     if (editor && !editor.isDestroyed)
       editor.view.dispatch(editor.state.tr.setMeta("playback", true));
@@ -673,7 +738,7 @@ export function TranscriptEditor({
       report("Finish typing before inspecting originals.");
       return;
     }
-    const ranges = selectedRanges(editor);
+    const ranges = actionRanges(editor);
     const parent = editor.state.selection.$from.parent;
     const block = blocks.find(
       (b) => b.segmentId === parent.attrs.segmentId && b.id === parent.attrs.blockId,

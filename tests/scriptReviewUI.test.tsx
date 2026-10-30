@@ -1,4 +1,7 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { Editor } from "@tiptap/core";
+import { dispatchCommand } from "@/lib/appCommands";
+import * as workflow from "@/lib/scriptWorkflow";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { TranscriptEditor } from "@/components/TranscriptEditor/TranscriptEditor";
@@ -18,6 +21,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   useFillerAuditionStore.getState().stop();
 });
 function Harness() {
@@ -33,6 +37,84 @@ function marker(className: string) {
 }
 
 describe("inline transcript review", () => {
+  it.each(["toolbar", "native menu"])(
+    "retains a blurred passage for %s even if WebKit collapses the live selection",
+    async (route) => {
+      const run = vi
+        .spyOn(workflow, "runScriptReconciliation")
+        .mockResolvedValue({ applied: 0, pending: 1, offScript: 0, unsupported: 0 });
+      open();
+      const dom = screen.getByRole("textbox", { name: "Editable transcript" }) as HTMLElement & {
+        editor: Editor;
+      };
+      act(() => dom.editor.commands.setTextSelection({ from: 2, to: 8 }));
+      const check = screen.getByRole("button", { name: "Check selection" });
+      fireEvent.mouseDown(check);
+      fireEvent.blur(dom);
+      act(() => dom.editor.commands.setTextSelection(1));
+      expect(screen.getByRole("button", { name: "Check selection" })).toBeEnabled();
+      expect(document.querySelector(".is-passage-selected")?.textContent).toBe(
+        projectTranscript(useProjectStore.getState().project)[0]!.text.slice(1, 7),
+      );
+      if (route === "toolbar") fireEvent.click(check);
+      else act(() => dispatchCommand("review-selected"));
+      await waitFor(() => expect(run).toHaveBeenCalledOnce());
+      expect(run.mock.calls[0]![1]).toEqual([
+        { segmentId: "s1", blockId: "block-1", from: 1, to: 7 },
+      ]);
+    },
+  );
+  it("keeps a saved passage through metadata changes but clears it for a new project session", () => {
+    open();
+    const dom = screen.getByRole("textbox", { name: "Editable transcript" }) as HTMLElement & {
+      editor: Editor;
+    };
+    act(() => dom.editor.commands.setTextSelection({ from: 2, to: 8 }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Check selection" }));
+    fireEvent.blur(dom);
+    act(() => dom.editor.commands.setTextSelection(1));
+    act(() => useProjectStore.getState().rename("Metadata change"));
+    expect(screen.getByRole("button", { name: "Check selection" })).toBeEnabled();
+    // Exercise document capture; jsdom has no geometry for ProseMirror's later
+    // caret hit-test, which is independent of the retained-scope behavior.
+    dom.addEventListener("mousedown", (event) => event.stopImmediatePropagation(), {
+      capture: true,
+      once: true,
+    });
+    fireEvent.mouseDown(dom);
+    expect(screen.queryByRole("button", { name: "Check selection" })).toBeNull();
+    act(() => dom.editor.commands.setTextSelection({ from: 2, to: 8 }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Check selection" }));
+    act(() => replaceProjectBaseline(useProjectStore.getState().project));
+    expect(screen.queryByRole("button", { name: "Check selection" })).toBeNull();
+    expect(document.querySelector(".is-passage-selected")).toBeNull();
+  });
+  it("explains missing script setup instead of silently disabling selection review", () => {
+    const p = structuredClone(fixture) as Project;
+    delete p.scriptAssistance;
+    replaceProjectBaseline(p);
+    open();
+    const dom = screen.getByRole("textbox", { name: "Editable transcript" }) as HTMLElement & {
+      editor: Editor;
+    };
+    act(() => dom.editor.commands.setTextSelection({ from: 2, to: 8 }));
+    const command = vi.fn();
+    window.addEventListener("yusafcut:command", command);
+    fireEvent.click(screen.getByRole("button", { name: "Add script to check selection…" }));
+    expect(command.mock.calls[0]![0].detail).toBe("script");
+    expect(screen.getByRole("status")).toHaveTextContent(/selection is retained/);
+    window.removeEventListener("yusafcut:command", command);
+  });
+  it("labels the marked phrase with its actual before → replacement context", () => {
+    open();
+    const marker = document.querySelector<HTMLElement>(".is-script-pending")!;
+    expect(marker.title).toBe("serveur. → server.");
+    expect(marker.getAttribute("aria-label")).toBe(marker.title);
+    fireEvent.click(marker);
+    expect(screen.getByRole("dialog", { name: "Review suggestion" })).toHaveTextContent(
+      /serveur.*server/s,
+    );
+  });
   it("lets form controls and buttons use Space/letters without global playback shortcuts", () => {
     open();
     const playback = vi.fn();

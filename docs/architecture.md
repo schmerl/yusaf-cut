@@ -301,3 +301,14 @@ unchanged. Boundary estimates capture candidate, project, session and request
 identity. Transcript document synchronization restores scroll and chooses the
 nearest surviving paragraph when a cut removes the caret's block; a new session
 starts at the top. These mechanisms do not change original recognition or captions.
+
+### Selection handoff (4.8.0-dev.4)
+
+The editor captures logical passage ranges before outside pointer/focus changes.
+Toolbar and native menu commands use that snapshot if WebKit collapses its live
+selection; an editor decoration keeps the retained scope visible. Metadata-only
+changes such as script attachment preserve it, while changed text and new project
+sessions clear it. Fresh caret/selection interaction replaces the snapshot.
+Missing-script review commands open script management explicitly. Suggestion
+markers expose the exact before/replacement context in their tooltip and accessible
+name; users can run whole-transcript comparison and click Jason directly.

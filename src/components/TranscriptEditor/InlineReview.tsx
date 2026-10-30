@@ -16,7 +16,7 @@ import { createScriptRun, runScriptReconciliation, type ScriptRun } from "@/lib/
 import { estimateFillerBoundaries } from "@/lib/ipc";
 import { endTypingGroup, projectSession, useProjectStore } from "@/stores/projectStore";
 import { startReviewAudition, useFillerAuditionStore } from "@/stores/fillerAuditionStore";
-import { useAppCommands } from "@/lib/appCommands";
+import { dispatchCommand, useAppCommands } from "@/lib/appCommands";
 import type { ScriptReviewRecord } from "@/lib/scriptAssistance";
 
 export interface ReviewTarget {
@@ -334,7 +334,8 @@ export function InlineReview({
   async function find(selectedOnly: boolean, audio = false) {
     if (busy) return;
     if (!project.scriptAssistance) {
-      setError("Add a script from File → Add / Replace Script first.");
+      dispatchCommand("script");
+      setNotice("Add a script, then check this passage. Your selection is retained.");
       return;
     }
     if (selectedOnly && !selection.length) {
@@ -409,23 +410,18 @@ export function InlineReview({
     <>
       <div className="inline-review-toolbar" aria-label="Transcript review">
         {toolbarActions}
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busy || !project.scriptAssistance}
-          onClick={() => void find(false)}
-        >
-          Find differences
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void find(false)}>
+          {project.scriptAssistance ? "Find differences" : "Add script…"}
         </Button>
         {selection.length > 0 && (
           <Button
             size="sm"
             variant="ghost"
-            disabled={busy || !project.scriptAssistance}
+            disabled={busy}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => void find(true)}
           >
-            Check selection
+            {project.scriptAssistance ? "Check selection" : "Add script to check selection…"}
           </Button>
         )}
         <select
@@ -471,7 +467,7 @@ export function InlineReview({
             <Button
               size="sm"
               variant="ghost"
-              disabled={busy || !project.scriptAssistance}
+              disabled={busy}
               onClick={() => void find(!!selection.length, true)}
             >
               Check audio (slower)

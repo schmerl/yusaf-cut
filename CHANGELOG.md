@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Development
+- Preserve transcript passage selections across toolbar/menu focus and show the
+  retained range until a new caret/selection, text change or project session.
+  Missing-script review actions now open setup rather than staying silently disabled.
+- Label correction highlights with their before → replacement text (for example,
+  Jason → JSON), and document whole-transcript highlighting without a selection.
 - Replace persistent script/filler review panels with a shared inline popover and
   compact transcript review toolbar. Show text suggestions without waiting for
   Whisper; retain explicit local audio checking and existing independent evidence.

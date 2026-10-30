@@ -659,3 +659,10 @@ checking remains explicit and local; text-only similarity does not authorize
 automatic wording changes. Detailed evidence, script source/history and filler
 settings are on demand. Undo restores review actionability and cuts preserve
 transcript position. Automatic wording eligibility/application remains unfinished.
+
+Selected-passage review retains logical ranges when focus moves to native menus or
+toolbar controls, and shows the retained passage in the transcript. Metadata-only
+script attachment preserves that scope; changing text or opening a project clears
+stale scope. A missing script offers setup directly. Correction highlight tooltips
+show the proposed before → replacement text so whole-transcript review needs no
+manual paragraph selection.

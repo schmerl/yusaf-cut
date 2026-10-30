@@ -115,9 +115,7 @@ export function useNativeMenu() {
           const enabled =
             item.id.startsWith("review-") ||
             ["format-script", "original", "cut-speech"].includes(item.id)
-              ? hasWords &&
-                (!["review-script", "review-selected", "format-script"].includes(item.id) ||
-                  !!project.scriptAssistance)
+              ? hasWords && (!["format-script"].includes(item.id) || !!project.scriptAssistance)
               : ["export", "captions", "script"].includes(item.id)
                 ? project.segments.length > 0
                 : true;
