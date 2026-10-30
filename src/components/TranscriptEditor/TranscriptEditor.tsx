@@ -23,7 +23,11 @@ import {
 import { transcriptMatchContexts, type TranscriptMatch } from "@/lib/transcriptSearch";
 import type { Project } from "@/lib/edl";
 import { formatTimecode } from "@/lib/timecode";
-import { FILLER_WORDS } from "./WordNode";
+import { fillerCandidates, type FillerCandidate } from "@/lib/fillerReview";
+import { useUIStore } from "@/stores/uiStore";
+import { projectSession } from "@/stores/projectStore";
+import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
+import { FillerReviewPanel } from "./FillerReviewPanel";
 import { FindReplacePanel } from "./FindReplacePanel";
 
 const TimedParagraph = Paragraph.extend({
@@ -86,14 +90,24 @@ export function TranscriptEditor({
   onFindClose,
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
+  const reviewOpen = useUIStore((s) => s.fillerReviewOpen);
+  const reviewId = useUIStore((s) => s.fillerReviewCandidateId);
+  const reviewIdRef = useRef(reviewId);
+  reviewIdRef.current = reviewId;
+  const setReviewOpen = useUIStore((s) => s.setFillerReviewOpen);
+  const audition = useFillerAuditionStore((s) => s.request);
+  const auditionRef = useRef(audition);
+  auditionRef.current = audition;
   const currentTime = usePlayerStore((s) => s.currentTime);
   const timelineMarkIn = usePlayerStore((s) => s.timelineMarkIn);
   const timelineMarkOut = usePlayerStore((s) => s.timelineMarkOut);
   const timelineSelection = useRef({ from: timelineMarkIn, to: timelineMarkOut });
   timelineSelection.current = { from: timelineMarkIn, to: timelineMarkOut };
-  const projectionCache = useRef<{ project: Project; blocks: Map<string, ProjectedBlock> } | null>(
-    null,
-  );
+  const projectionCache = useRef<{
+    project: Project;
+    blocks: Map<string, ProjectedBlock>;
+    fillers: FillerCandidate[];
+  } | null>(null);
   const pauseTokens = useProjectStore((s) => s.pauseTokens);
   const past = useTemporalProjectStore((s) => s.pastStates);
   const blocks = useMemo(() => projectTranscript(project), [project]);
@@ -187,6 +201,7 @@ export function TranscriptEditor({
                   if (projectionCache.current?.project !== model.current) {
                     projectionCache.current = {
                       project: model.current,
+                      fillers: fillerCandidates(model.current).filter((c) => !c.hidden),
                       blocks: new Map(
                         projectTranscript(model.current).map((b) => [`${b.segmentId}:${b.id}`, b]),
                       ),
@@ -257,10 +272,22 @@ export function TranscriptEditor({
                           );
                       });
                     }
+                    for (const candidate of projectionCache.current!.fillers) {
+                      if (candidate.segmentId === block.segmentId && candidate.blockId === block.id)
+                        decorations.push(
+                          Decoration.inline(pos + 1 + candidate.from, pos + 1 + candidate.to, {
+                            class: `is-filler${candidate.id === reviewIdRef.current ? " is-review-current" : ""}`,
+                            "data-filler-id": candidate.id,
+                            title: "Filler candidate — Review fillers to listen and decide",
+                          }),
+                        );
+                    }
                     for (const run of block.runs) {
                       if (run.from === run.to) continue;
                       const active =
-                        playback.current >= run.outputStart && playback.current < run.outputEnd;
+                        !auditionRef.current &&
+                        playback.current >= run.outputStart &&
+                        playback.current < run.outputEnd;
                       const range = timelineSelection.current;
                       const selected =
                         range.from !== null &&
@@ -512,13 +539,21 @@ export function TranscriptEditor({
   useEffect(() => {
     if (editor && !editor.isDestroyed)
       editor.view.dispatch(editor.state.tr.setMeta("playback", true));
-  }, [editor, currentTime, timelineMarkIn, timelineMarkOut]);
+  }, [editor, currentTime, timelineMarkIn, timelineMarkOut, audition, reviewId]);
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
     [],
   );
+
+  useEffect(() => {
+    if (!editor || !reviewId) return;
+    const occurrence = Array.from(
+      editor.view.dom.querySelectorAll<HTMLElement>("[data-filler-id]"),
+    ).find((el) => el.dataset.fillerId === reviewId);
+    occurrence?.scrollIntoView?.({ block: "nearest" });
+  }, [editor, reviewId]);
 
   function seek(event: React.MouseEvent) {
     if (!event.metaKey && !event.ctrlKey) return;
@@ -604,19 +639,8 @@ export function TranscriptEditor({
         <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
           Undo
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            try {
-              endTypingGroup();
-              useProjectStore.getState().deleteWordsByText(FILLER_WORDS);
-            } catch (error) {
-              report(error);
-            }
-          }}
-        >
-          Cut filler speech
+        <Button size="sm" variant="ghost" onClick={() => setReviewOpen(true)}>
+          Review fillers
         </Button>
         {fullParagraphSelected && (
           <span className="text-xs text-muted-foreground">
@@ -698,8 +722,16 @@ export function TranscriptEditor({
             ))}
         </details>
       )}
-      <div className="transcript-scroll flex-1" onClick={seek}>
-        <EditorContent editor={editor} />
+      <div className={`transcript-review-layout ${reviewOpen ? "review-open" : ""}`}>
+        <div className="transcript-scroll min-w-0 flex-1" onClick={seek}>
+          <EditorContent editor={editor} />
+        </div>
+        {reviewOpen && (
+          <FillerReviewPanel
+            key={`${project.id}:${projectSession()}`}
+            onClose={() => setReviewOpen(false)}
+          />
+        )}
       </div>
       {!blocks.length && (
         <p className="p-4 text-sm text-muted-foreground">

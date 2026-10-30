@@ -28,6 +28,10 @@ interface UIState {
   /** Label shown in the processing overlay, e.g. "Updating timeline…". */
   processingEditLabel: string | null;
   activeTool: EditorTool;
+  fillerReviewOpen: boolean;
+  fillerReviewCandidateId: string | null;
+  setFillerReviewCandidateId: (id: string | null) => void;
+  setFillerReviewOpen: (open: boolean) => void;
 
   pushToast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
@@ -59,6 +63,10 @@ export const useUIStore = create<UIState>((set) => ({
   isProcessingEdit: false,
   processingEditLabel: null,
   activeTool: "select",
+  fillerReviewOpen: false,
+  fillerReviewCandidateId: null,
+  setFillerReviewCandidateId: (id) => set({ fillerReviewCandidateId: id }),
+  setFillerReviewOpen: (open) => set({ fillerReviewOpen: open }),
 
   pushToast: (t) =>
     set((s) => ({

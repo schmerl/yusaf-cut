@@ -1,5 +1,6 @@
+import { occurrenceLineage, reconcileFillerReview } from "./fillerReview";
 import { v4 as uuid } from "uuid";
-import { deleteWords, type Project, type Segment } from "./edl";
+import { computeTimeline, deleteWords, type Project, type Segment } from "./edl";
 import {
   normalizeProjectTranscripts,
   projectTranscript,
@@ -21,6 +22,7 @@ function fail(message: string): never {
   throw new Error(message);
 }
 function finish(project: Project): Project {
+  project = reconcileFillerReview(project);
   validateProjectTranscripts(project);
   return { ...project, updatedAt: new Date().toISOString() };
 }
@@ -233,6 +235,7 @@ export function cutTranscriptRanges(project: Project, ranges: TextRange[]): Proj
 
 /** Used by every EDL split/cut. Never discard the overlay of retained speech. */
 export function reconcileTranscript(source: Segment, target: Segment): Segment {
+  target = { ...target, precise: target.precise ?? source.precise, occurrenceLineage: occurrenceLineage(source) };
   if (!source.transcript) return target;
   const surviving = new Set(
     target.words
@@ -392,7 +395,23 @@ export function cutOutputSpeech(project: Project, start: number, end: number): P
       });
     }
   }
-  return cutTranscriptRanges(project, ranges);
+  const edited = cutTranscriptRanges(project, ranges);
+  // Retained filler edges carry no words, so ordinary text selection cannot
+  // represent them. A timeline range can explicitly cut their exact audio.
+  const entries = new Map(computeTimeline(project).map((entry) => [entry.segmentId, entry]));
+  let changed = false;
+  const segments = edited.segments.flatMap((segment) => {
+    const entry = entries.get(segment.id);
+    if (!segment.fillerAudio || !entry || to <= entry.outputStart || from >= entry.outputEnd) return [segment];
+    const cutStart = Math.max(segment.sourceIn, segment.sourceIn + from - entry.outputStart);
+    const cutEnd = Math.min(segment.sourceOut, segment.sourceIn + to - entry.outputStart);
+    changed = true;
+    return [
+      ...(cutStart > segment.sourceIn ? [{ ...segment, id: uuid(), sourceOut: cutStart }] : []),
+      ...(cutEnd < segment.sourceOut ? [{ ...segment, id: uuid(), sourceIn: cutEnd }] : []),
+    ];
+  });
+  return changed ? finish({ ...edited, segments }) : edited;
 }
 
 export interface EditorParagraph {

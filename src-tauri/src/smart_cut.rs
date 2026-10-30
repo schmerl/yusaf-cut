@@ -57,6 +57,9 @@ pub const MIN_COPY_DURATION: f64 = 2.0;
 /// `requested_codec` is `"h264"`, `"hevc"`, or `None` (= match source). The
 /// returned bool is false → caller must use full re-encode.
 pub fn is_eligible(project: &Project, codec: Option<&str>, width: Option<u32>, height: Option<u32>, fps: Option<f64>, audio_only: bool) -> bool {
+    // Exact review cuts use the tested trim/concat path. Stream-copy GOP/audio
+    // boundaries can shift tiny offsets even when video heads are re-encoded.
+    if project.segments.iter().any(|s| s.precise == Some(true)) { return false; }
     if audio_only {
         return false;
     }
@@ -297,13 +300,21 @@ mod tests {
             updated_at: "x".into(),
             media,
             segments: vec![
-                Segment { transcript: None, id: "s1".into(), media_id: "m".into(), words: vec![], source_in: 0.0, source_out: 30.0 },
-                Segment { transcript: None, id: "s2".into(), media_id: "m".into(), words: vec![], source_in: 40.0, source_out: 55.0 },
+                Segment { precise: None, filler_audio: None, occurrence_lineage: None, transcript: None, id: "s1".into(), media_id: "m".into(), words: vec![], source_in: 0.0, source_out: 30.0 },
+                Segment { precise: None, filler_audio: None, occurrence_lineage: None, transcript: None, id: "s2".into(), media_id: "m".into(), words: vec![], source_in: 40.0, source_out: 55.0 },
             ],
             settings: ProjectSettings { export_preset: ExportPreset::Youtube1080p, padding_ms: 80 },
             chapters: vec![],
             audio_tracks: vec![],
+            filler_review: None,
         }
+    }
+
+    #[test]
+    fn precise_review_boundaries_require_full_reencode() {
+        let mut project = fixture();
+        project.segments[0].precise = Some(true);
+        assert!(!is_eligible(&project, None, None, None, None, false));
     }
 
     #[test]
@@ -330,6 +341,7 @@ mod tests {
             width: 1920, height: 1080, audio_sample_rate: 48000, sha256: "y".into(),
         });
         p.segments.push(Segment {
+            precise: None, filler_audio: None, occurrence_lineage: None,
             transcript: None,
             id: "s3".into(), media_id: "n".into(), words: vec![],
             source_in: 0.0, source_out: 5.0,

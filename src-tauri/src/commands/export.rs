@@ -103,6 +103,7 @@ async fn run_export(
     opts: &ExportOpts,
     job: &JobHandle,
 ) -> Result<(), String> {
+    crate::transcript::validate_project(&opts.project).map_err(|e| e.to_string())?;
     // Compute total duration up-front — used for chapter metadata + progress.
     let total_duration = opts
         .project
@@ -183,6 +184,26 @@ impl From<String> for SmartCutError {
     }
 }
 
+// Adjacent precise fragments are one continuous source passage. Coalesce them
+// for encoding, so a retained 10ms edge isn't independently quantized as video.
+struct ExportRange<'a> { media_id: &'a str, source_in: f64, source_out: f64, precise: bool }
+fn export_ranges(project: &Project) -> Vec<ExportRange<'_>> {
+    let mut ranges: Vec<ExportRange<'_>> = Vec::new();
+    for segment in &project.segments {
+        if let Some(last) = ranges.last_mut() {
+            if last.precise && segment.precise == Some(true) && last.media_id == segment.media_id && last.source_out == segment.source_in {
+                last.source_out = segment.source_out;
+                continue;
+            }
+        }
+        ranges.push(ExportRange { media_id: &segment.media_id, source_in: segment.source_in, source_out: segment.source_out, precise: segment.precise == Some(true) });
+    }
+    ranges
+}
+fn export_source_in(range: &ExportRange<'_>, padding: f64) -> f64 {
+    if range.precise { range.source_in } else { (range.source_in - padding).max(0.0) }
+}
+
 async fn try_smart_cut(
     app: &AppHandle,
     state: &State<'_, AppState>,
@@ -220,8 +241,8 @@ async fn try_smart_cut(
     let mut total_chunks = 0usize;
     let mut copyable = 0.0f64;
     let mut reencode_secs = 0.0f64;
-    for seg in &opts.project.segments {
-        let padded_in = (seg.source_in - pad_secs).max(0.0);
+    for seg in export_ranges(&opts.project) {
+        let padded_in = export_source_in(&seg, pad_secs);
         let chunks = smart_cut::plan_segment(padded_in, seg.source_out, &kfs);
         for c in &chunks {
             match c.kind {
@@ -466,6 +487,33 @@ async fn run_ffmpeg(
 // Full re-encode path (the v2.1 behaviour, now with music-bed mixing).
 // ---------------------------------------------------------------------------
 
+pub(super) fn build_segment_filter(clip_specs: &[(usize, f64, f64)], video_tail: &str, audio_only: bool) -> String {
+    let mut filter = String::new();
+    let mut video_inputs = String::new();
+    let mut audio_inputs = String::new();
+    let mut output_start = 0.0;
+    for (i, (input_idx, sin, sout)) in clip_specs.iter().enumerate() {
+        // Sample-count timestamps remove packet timestamp jitter. Concatenating
+        // audio separately prevents concat's A/V duration matching from padding
+        // each join with silence when a cut lies between video frames.
+        let _ = writeln!(filter, "[{input_idx}:a]atrim=start={sin}:end={sout},asetpts=N/SR/TB[a{i}];");
+        let _ = write!(audio_inputs, "[a{i}]");
+        if !audio_only {
+            // Place retained frames on the edited output clock directly. A video
+            // concat would accumulate frame rounding at every individual cut.
+            let output_end = output_start + sout - sin;
+            let _ = writeln!(filter, "[{input_idx}:v]trim=start={sin}:end={sout},settb=AVTB,setpts=PTS-({sin})/TB+({output_start})/TB{video_tail},trim=start={output_start}:end={output_end}[v{i}];");
+            let _ = write!(video_inputs, "[v{i}]");
+        }
+        output_start += sout - sin;
+    }
+    if !audio_only {
+        let _ = write!(filter, "{video_inputs}interleave=nb_inputs={n}:duration=longest[outv];", n = clip_specs.len());
+    }
+    let _ = write!(filter, "{audio_inputs}concat=n={n}:v=0:a=1[mainvox]", n = clip_specs.len());
+    filter
+}
+
 async fn full_reencode(
     app: &AppHandle,
     state: &State<'_, AppState>,
@@ -483,11 +531,11 @@ async fn full_reencode(
     // Build a list of (input_path, in, out) by walking the EDL in output order.
     let mut inputs: Vec<&String> = Vec::new();
     let mut clip_specs: Vec<(usize, f64, f64)> = Vec::new();
-    for seg in &opts.project.segments {
+    for seg in export_ranges(&opts.project) {
         let media = opts
             .project
             .media
-            .get(&seg.media_id)
+            .get(seg.media_id)
             .ok_or_else(|| format!("unknown media: {}", seg.media_id))?;
         let idx = match inputs.iter().position(|p| **p == media.path) {
             Some(i) => i,
@@ -496,12 +544,10 @@ async fn full_reencode(
                 inputs.len() - 1
             }
         };
-        clip_specs.push((idx, (seg.source_in - pad_secs).max(0.0), seg.source_out));
+        clip_specs.push((idx, export_source_in(&seg, pad_secs), seg.source_out));
     }
 
     // Build the segment filter graph (trim each segment, concat into [outv][outa]).
-    let mut filter = String::new();
-    let mut concat_inputs = String::new();
     let mut video_tail = String::new();
     if let (Some(w), Some(h)) = (opts.width, opts.height) {
         let _ = write!(
@@ -514,19 +560,7 @@ async fn full_reencode(
             let _ = write!(video_tail, ",fps={fps}");
         }
     }
-    for (i, (input_idx, sin, sout)) in clip_specs.iter().enumerate() {
-        let _ = writeln!(
-            filter,
-            "[{input_idx}:v]trim=start={sin}:end={sout},setpts=PTS-STARTPTS{video_tail}[v{i}];\
-             [{input_idx}:a]atrim=start={sin}:end={sout},asetpts=PTS-STARTPTS[a{i}];"
-        );
-        let _ = write!(concat_inputs, "[v{i}][a{i}]");
-    }
-    let _ = write!(
-        filter,
-        "{concat_inputs}concat=n={n}:v=1:a=1[outv][mainvox]",
-        n = clip_specs.len()
-    );
+    let mut filter = build_segment_filter(&clip_specs, &video_tail, matches!(opts.preset, ExportPreset::PodcastAudio));
 
     // Music-bed mixing. We track the music input indices as we add them, then
     // append filter rules to mix them under [mainvox] → [outa].
@@ -589,6 +623,9 @@ async fn full_reencode(
     let video_codec = pick_video_codec(opts);
     match opts.preset {
         ExportPreset::Youtube1080p | ExportPreset::Custom => {
+            // Preserve edited frame timestamps instead of duplicating frames to
+            // restore the original source's constant-frame-rate duration.
+            argv.extend(["-fps_mode".into(), "vfr".into()]);
             let vb = opts.video_bitrate_kbps.unwrap_or(8000);
             let ab = opts.audio_bitrate_kbps.unwrap_or(192);
             argv.extend([
@@ -844,35 +881,17 @@ mod tests {
     use std::collections::HashMap;
 
     fn build_filter_for_test(project: &Project) -> String {
-        let mut filter = String::new();
-        use std::fmt::Write as _;
         let mut inputs: Vec<&String> = Vec::new();
         let mut specs: Vec<(usize, f64, f64)> = Vec::new();
-        for seg in &project.segments {
-            let media = project.media.get(&seg.media_id).unwrap();
+        for seg in super::export_ranges(project) {
+            let media = project.media.get(seg.media_id).unwrap();
             let idx = match inputs.iter().position(|p| **p == media.path) {
                 Some(i) => i,
-                None => {
-                    inputs.push(&media.path);
-                    inputs.len() - 1
-                }
+                None => { inputs.push(&media.path); inputs.len() - 1 }
             };
-            specs.push((idx, seg.source_in, seg.source_out));
+            specs.push((idx, super::export_source_in(&seg, project.settings.padding_ms as f64 / 1000.0), seg.source_out));
         }
-        let mut concat_inputs = String::new();
-        for (i, (idx, sin, sout)) in specs.iter().enumerate() {
-            let _ = writeln!(
-                filter,
-                "[{idx}:v]trim=start={sin}:end={sout},setpts=PTS-STARTPTS[v{i}];[{idx}:a]atrim=start={sin}:end={sout},asetpts=PTS-STARTPTS[a{i}];"
-            );
-            let _ = write!(concat_inputs, "[v{i}][a{i}]");
-        }
-        let _ = write!(
-            filter,
-            "{concat_inputs}concat=n={n}:v=1:a=1[outv][mainvox]",
-            n = specs.len()
-        );
-        filter
+        super::build_segment_filter(&specs, "", false)
     }
 
     fn fixture() -> Project {
@@ -899,6 +918,7 @@ mod tests {
             media,
             segments: vec![
                 Segment {
+                    precise: None, filler_audio: None, occurrence_lineage: None,
                     transcript: None,
                     id: "s1".into(),
                     media_id: "m".into(),
@@ -914,6 +934,7 @@ mod tests {
                     source_out: 2.0,
                 },
                 Segment {
+                    precise: None, filler_audio: None, occurrence_lineage: None,
                     transcript: None,
                     id: "s2".into(),
                     media_id: "m".into(),
@@ -928,6 +949,7 @@ mod tests {
             },
             chapters: vec![],
             audio_tracks: vec![],
+            filler_review: None,
         }
     }
 
@@ -935,8 +957,86 @@ mod tests {
     fn builds_two_segment_concat() {
         let filter = build_filter_for_test(&fixture());
         assert!(filter.contains("[0:v]trim=start=0:end=2"));
-        assert!(filter.contains("[0:v]trim=start=5:end=7"));
-        assert!(filter.contains("concat=n=2:v=1:a=1[outv][mainvox]"));
+        assert!(filter.contains("[0:v]trim=start=4.92:end=7"));
+        assert!(filter.contains("interleave=nb_inputs=2:duration=longest[outv]"));
+        assert!(filter.contains("concat=n=2:v=0:a=1[mainvox]"));
+    }
+
+    #[test]
+    fn precise_edge_audio_is_coalesced_without_padding_or_lost_duration() {
+        let project: Project = serde_json::from_str(include_str!("../../../tests/fixtures/filler-retained-edges.json")).unwrap();
+        let ranges = super::export_ranges(&project);
+        assert_eq!(ranges.len(), 2);
+        assert_eq!((ranges[0].source_in, ranges[0].source_out), (0.0, 0.55));
+        assert_eq!((ranges[1].source_in, ranges[1].source_out), (0.75, 5.0));
+        assert_eq!(super::export_source_in(&ranges[1], 0.08), 0.75);
+        let duration: f64 = ranges.iter().map(|r| r.source_out - r.source_in).sum();
+        assert!((duration - 4.8).abs() < 1e-9);
+        let filter = build_filter_for_test(&project);
+        assert!(filter.contains("atrim=start=0:end=0.55"));
+        assert!(filter.contains("atrim=start=0.75:end=5"));
+        assert!(filter.contains("concat=n=2:v=0:a=1"));
+    }
+
+    #[test]
+    fn headless_ffmpeg_preserves_retained_edge_samples_when_available() {
+        use std::process::Command;
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            eprintln!("ffmpeg unavailable; skipping the optional headless render check");
+            return;
+        }
+        let project: Project = serde_json::from_str(include_str!("../../../tests/fixtures/filler-retained-edges.json")).unwrap();
+        let path = std::env::temp_dir().join(format!("filler-render-{}.mkv", uuid::Uuid::new_v4()));
+        let generated = Command::new("ffmpeg").args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=16x16:rate=100:duration=5", "-f", "lavfi", "-i", "aevalsrc=t:s=48000:d=5", "-c:v", "ffv1", "-c:a", "pcm_f32le"]).arg(&path).output().unwrap();
+        assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
+        let graph = build_filter_for_test(&project);
+        let rendered = Command::new("ffmpeg").args(["-v", "error", "-i"]).arg(&path)
+            .args(["-filter_complex", &graph, "-map", "[outv]", "-f", "null", "-", "-map", "[mainvox]", "-f", "f32le", "pipe:1"])
+            .output().unwrap();
+        std::fs::remove_file(path).ok();
+        assert!(rendered.status.success(), "{}", String::from_utf8_lossy(&rendered.stderr));
+        let samples: Vec<f32> = rendered.stdout.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+        assert_eq!(samples.len(), 230400); // 4.8s at 48kHz, no second padding pass.
+        assert!((samples[24960] - 0.52).abs() < 0.0001); // leading filler edge
+        assert!((samples[26880] - 0.76).abs() < 0.0001); // trailing filler edge
+        let specs: Vec<_> = super::export_ranges(&project).iter().map(|r| (0, super::export_source_in(r, 0.08), r.source_out)).collect();
+        let audio_graph = super::build_segment_filter(&specs, "", true);
+        assert!(!audio_graph.contains(":v]"));
+        let audio = Command::new("ffmpeg").args(["-v", "error", "-f", "lavfi", "-i", "aevalsrc=t:s=48000:d=5", "-filter_complex", &audio_graph, "-map", "[mainvox]", "-f", "f32le", "pipe:1"]).output().unwrap();
+        assert!(audio.status.success(), "{}", String::from_utf8_lossy(&audio.stderr));
+        assert_eq!(audio.stdout.len(), 230400 * 4);
+        let edge = f32::from_le_bytes(audio.stdout[26880 * 4..26881 * 4].try_into().unwrap());
+        assert!((edge - 0.76).abs() < 0.0001);
+        eprintln!("Rendered video+audio and audio-only: 230400 samples, exact duration and both filler edges verified");
+    }
+
+    #[test]
+    fn fractional_frame_cuts_shorten_video_and_audio_without_silent_padding() {
+        use std::process::Command;
+        if Command::new("ffmpeg").arg("-version").output().is_err() || Command::new("ffprobe").arg("-version").output().is_err() { return; }
+        for rate in ["30", "30000/1001"] {
+            let dir = std::env::temp_dir().join(format!("cut-regression-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let source = dir.join("source.mkv");
+            let result = dir.join("result.mkv");
+            let input = format!("testsrc2=size=16x16:rate={rate}:duration=5");
+            let generated = Command::new("ffmpeg").args(["-v", "error", "-f", "lavfi", "-i", &input, "-f", "lavfi", "-i", "aevalsrc=0.5:s=48000:d=5", "-c:v", "ffv1", "-c:a", "pcm_f32le"]).arg(&source).output().unwrap();
+            assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
+            let specs = [(0, 0.0, 0.51), (0, 0.53, 1.01), (0, 1.03, 1.51), (0, 1.53, 2.01), (0, 2.03, 5.0)];
+            let graph = super::build_segment_filter(&specs, "", false);
+            let rendered = Command::new("ffmpeg").args(["-v", "error", "-i"]).arg(&source).args(["-filter_complex", &graph, "-map", "[outv]", "-map", "[mainvox]", "-fps_mode", "vfr", "-c:v", "ffv1", "-c:a", "pcm_f32le"]).arg(&result).output().unwrap();
+            assert!(rendered.status.success(), "{}", String::from_utf8_lossy(&rendered.stderr));
+            let decoded = Command::new("ffmpeg").args(["-v", "error", "-i"]).arg(&result).args(["-map", "0:a", "-f", "f32le", "pipe:1"]).output().unwrap();
+            assert!(decoded.status.success());
+            let samples: Vec<_> = decoded.stdout.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+            assert_eq!(samples.len(), 236160, "{rate}: audio must be exactly 4.920 s");
+            assert!(samples.iter().all(|sample| (*sample - 0.5).abs() < 1e-6), "{rate}: no silent samples may be inserted at a join");
+            let probe = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=duration", "-of", "json"]).arg(&result).output().unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+            let duration: f64 = json["format"]["duration"].as_str().unwrap().parse().unwrap();
+            assert!((duration - 4.92).abs() < 0.034, "{rate}: video must shorten to within one frame, got {duration}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     #[test]

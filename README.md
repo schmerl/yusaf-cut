@@ -53,12 +53,16 @@ iteration and some rough edges around packaging.
 | Project snapshots and named restore points | Complete |
 | Toolbar category menus for File, Capture, and Project | Complete |
 | Blocking-operation progress dialogs | Complete |
-| One-click filler word removal | Complete |
+| Per-occurrence filler review: listen, preview, keep, hide text, or cut speech | Ready for native review |
 | DTW word-timestamp refinement via `whisper.cpp --dtw` | Complete |
 | Cut-point pre-roll padding | Complete |
 | Timeline zoom and in/out markers | Complete |
 | Speaker diarisation | Experimental |
 | Auto-update and notarisation | Planned |
+
+Filler review is available through **Review fillers** in the transcript toolbar.
+See the [hands-on review guide](docs/manual-filler-review.md) for playback,
+boundary adjustments, and the remaining native acceptance checks.
 
 ## Screenshots
 

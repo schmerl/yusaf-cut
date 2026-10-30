@@ -7,6 +7,7 @@
 //! to eliminate the Python/MLX sidecar dependency. Restore from commit
 //! 074d1d3 if needed.
 
+mod filler_review;
 pub mod commands;
 pub mod edl;
 pub mod export_state;
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::default())
+        .manage(commands::audition::AuditionState::default())
         .invoke_handler(tauri::generate_handler![
             commands::media::import_media,
             commands::media::start_native_recording,
@@ -49,6 +51,9 @@ pub fn run() {
             commands::project::load_project,
             commands::project::relink_media,
             commands::export::export_video,
+            commands::audition::prepare_filler_audition,
+            commands::filler_timing::estimate_filler_boundaries,
+            commands::audition::release_filler_audition,
             commands::export::cancel_export,
             commands::jobs::list_jobs,
             commands::jobs::cancel_job,

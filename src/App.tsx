@@ -40,6 +40,8 @@ export default function App() {
   const hasTranscript = useProjectStore((s) =>
     s.project.segments.some((seg) => seg.words.length > 0),
   );
+  const reviewOpen = useUIStore((s) => s.fillerReviewOpen);
+  const showTranscript = hasTranscript || reviewOpen;
   const hasMedia = useProjectStore((s) => Object.keys(s.project.media).length > 0);
   const pushToast = useUIStore((s) => s.pushToast);
   const setMediaLoading = useUIStore((s) => s.setMediaLoading);
@@ -198,12 +200,12 @@ export default function App() {
        */}
       <div
         className={
-          hasTranscript
+          showTranscript
             ? "flex flex-1 overflow-hidden"
             : "flex flex-1 flex-col items-center justify-center overflow-hidden gap-5 px-8"
         }
       >
-        {hasTranscript && (
+        {showTranscript && (
           <>
             <main className="relative flex min-w-0 flex-1 overflow-hidden border-r border-border">
               <TranscriptEditor
@@ -235,16 +237,16 @@ export default function App() {
          */}
         <aside
           className={
-            hasTranscript
+            showTranscript
               ? "flex h-full shrink-0 flex-col overflow-hidden bg-black"
               : "flex w-full max-w-[900px] flex-col overflow-hidden rounded-2xl bg-black shadow-[0_8px_48px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.07]"
           }
-          style={hasTranscript ? { width: videoWidth } : { height: "min(560px, 65vh)" }}
+          style={showTranscript ? { width: videoWidth } : { height: "min(560px, 65vh)" }}
         >
           <VideoPreview />
         </aside>
 
-        {!hasTranscript && (
+        {!showTranscript && (
           <p className="text-sm text-muted-foreground/70">
             {hasMedia ? (
               <>

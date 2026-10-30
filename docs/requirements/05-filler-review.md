@@ -1,7 +1,65 @@
 # Feature 5: Review filler words one at a time
 
-Status: Feature request draft. The desired review actions are recorded here;
-interaction details and detection policy remain open for the next conversation.
+Status: Review workflow implemented on 2026-10-29, ready for human native
+acceptance. Automated validation is recorded in the plan; live playback and
+export listening checks remain pending. Start with the
+[hands-on checkpoint](../filler-review-checkpoint.md).
+
+Agent handoff: [detailed implementation plan](../plans/05-filler-review.md).
+
+## Confirmed decisions (2026-10-29)
+
+- Highlight vocal fillers by default, including CrisperWhisper bracketed forms
+  such as `[AH]`, `[UM]`, and `[UH]`. Preserve the recognized spelling on display;
+  normalize only for matching. Ordinary words and phrases require explicit opt-in.
+- Provide a selectable built-in list plus custom literal words/phrases. Store
+  detection choices in the project. Candidates are for human review, without an
+  automatic claim that an ordinary word is functioning as a filler.
+- Include audible fillers previously hidden by text-only editing. Mark them
+  **Text removed, audio retained**; exclude resolved text-only decisions from the
+  default unresolved queue and expose an **Audio retained** filter.
+- Open a review panel alongside the transcript through **Review fillers**.
+  Replace the existing bulk filler buttons in the first version.
+- Persist **Keep** in the project and provide a way to revisit kept occurrences.
+  **Skip** defers an occurrence for the current review session only.
+- Do not advance after Keep, Remove text only, or Cut filler speech. Keep the
+  current item available for listening and undo; navigation is explicit. Skip
+  moves to another occurrence as its deferral action.
+- Playback is explicit. Provide before, proposed-cut preview, committed-result
+  playback, and Stop, with adjustable surrounding context and optional looping.
+  Default context is two seconds on each side; looping defaults off. Context and
+  loop settings are session state and reset when the app reopens.
+- Adjust cut start and end independently with millisecond offsets and 10 ms
+  nudge buttons. Default offsets are zero relative to the recognized boundaries.
+  Adjustments may retain filler edges or remove extra surrounding gaps, but must
+  not cut neighboring word spans or cross existing edit boundaries.
+- Cut filler speech removes the entire candidate's transcript text/caption text,
+  even when adjusted boundaries retain some of its audio edges. Playback follows
+  the chosen boundaries; the preview must make those retained edges apparent.
+- Disable text-only removal if it would leave a spoken paragraph without text.
+  Explain the restriction. Do not loosen the existing nonempty-paragraph rule.
+- If a correction groups the filler with neighboring words, allow listening and
+  Keep/Skip, but disable its isolated speech cut. Do not silently expand the cut.
+
+Defaults for token inventory, overlap handling, occurrence identity, and replay
+history are specified as implementation decisions in the plan, with validation
+gates before the review UI is built.
+
+## Native review refinement — audio-informed boundaries (2026-10-29)
+
+For implausibly short or uncertain recognition spans, the app should calculate an
+initial editable audio estimate rather than ask the user to guess offsets. The
+previous token's end and next token's start (including text-hidden anchors),
+constrained by current EDL boundaries, define the search limits. Audio activity
+near the recognized occurrence informs the proposed onset/end; the entire pause
+between neighboring words is not automatically removed.
+
+This supersedes the raw zero-offset-only default for those occurrences. Original
+recognition anchors remain unchanged. Opening review, estimation and preview do
+not dirty the project; only explicit acceptance commits a cut. Manual overrides
+win over delayed estimates, and ambiguous audio falls back to an explanation and
+manual adjustment. Normal occurrences retain recognized timing unless the user
+chooses **Estimate from audio**. **Use recognized timing** restores zero offsets.
 
 ## Goal
 
@@ -61,19 +119,11 @@ silently treating every use of an ordinary word such as “like” as a filler.
 - Continue to support manual transcript editing and explicit speech cuts
   outside this workflow.
 
-## Questions for the next conversation
+## Implementation defaults
 
-- Which tokens should be highlighted automatically? Should ordinary words
-  such as “like”, “so”, “right”, and “okay” require context or explicit opt-in?
-- Should bracketed model tokens (`[AH]`, `[UH]`, `[UM]`, and others) be displayed
-  as-is, normalized for display, or configurable?
-- What should **Keep** do to the current review queue: dismiss only for this
-  run, or persist a reviewed state after save/reopen?
-- Should the review flow include a “skip for now” action distinct from Keep?
-- Should the user be able to adjust proposed audio-cut boundaries before
-  accepting, especially near a neighboring word or breath?
-- Should the existing bulk filler controls remain, move behind an advanced
-  action, or be replaced by the review flow?
+See the plan for the exact initial token inventory, literal phrase matching,
+candidate reconciliation after corrections/cuts, and guarded playback lifecycle.
+These are engineering defaults rather than additional user-confirmed choices.
 
 ## Initial acceptance examples
 
@@ -87,4 +137,5 @@ silently treating every use of an ordinary word such as “like” as a filler.
   the same token.
 - An ordinary content use of “like” is not offered for an unsafe automatic cut.
 
-No implementation order relative to script assistance is decided here.
+Implement this feature before script assistance, using the existing manual
+correction foundation. Script assistance is not a dependency.
