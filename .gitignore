@@ -38,6 +38,9 @@ pnpm-debug.log*
 
 # Test
 coverage/
+__pycache__/
+# Private acoustic evaluation inputs, clips, labels and model output
+test-output/
 
 # Tauri
 .tauri/

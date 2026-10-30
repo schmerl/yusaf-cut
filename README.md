@@ -12,6 +12,10 @@ cloud upload, no telemetry, and no API keys.
 The project is built with Tauri, React, TypeScript, Rust, whisper.cpp, and
 FFmpeg. It currently targets Apple Silicon Macs.
 
+Script-assisted correction is in acoustic feasibility evaluation and is not yet
+available in the editor. See the [development checkpoint and listening review
+script](docs/script-corrections-checkpoint.md) for current progress.
+
 ## ❤️ Sponsor YusafCut
 
 If YusafCut helps you, consider supporting the project:

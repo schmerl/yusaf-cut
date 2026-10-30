@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Development
+- Begin script-assisted correction feasibility work with a read-only local
+  listening study tool, disposable project copies, source integrity checks,
+  development/held-out separation, and unprompted/script/adversarial Whisper
+  comparisons. Includes intermediate and planned final human review scripts.
+  Reconciliation UI and automatic correction are not available yet.
+
 ## [4.7.0] - 2026-10-26
 
 ### Added
