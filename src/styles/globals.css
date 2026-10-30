@@ -262,14 +262,14 @@
   border-radius: 3px;
 }
 
-/* Filler words — amber highlight + hover-X to delete in one click */
-.transcript-editor .word.is-filler {
+/* Filler candidates — amber highlight; review actions are explicit. */
+.transcript-editor .is-filler {
   color: hsl(var(--filler));
   background-color: hsl(var(--filler) / 0.16);
   box-shadow: inset 0 0 0 1px hsl(var(--filler) / 0.4);
   border-radius: 3px;
 }
-.transcript-editor .word.is-filler:hover {
+.transcript-editor .is-filler:hover {
   background-color: hsl(var(--filler) / 0.32);
 }
 .transcript-editor .word.is-filler .filler-x {
@@ -947,3 +947,11 @@
   user-select: none;
 }
 .transcript-editor .word { cursor: text; }
+
+/* Keep the current transcript beside review on wide panels, above it on narrow ones. */
+.transcript-review-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; container-type: inline-size; }
+.filler-review { width: 340px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid hsl(var(--border)); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.filler-review input[type="number"], .filler-review textarea, .filler-review select { background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: 4px; padding: 4px; }
+@container (max-width: 650px) { .filler-review { width: 46%; min-width: 245px; } }
+@media (max-width: 1050px) { .transcript-review-layout.review-open { flex-direction: column; } .review-open > .transcript-scroll { min-height: 120px; flex: 1; } .filler-review { width: 100%; max-height: 60%; border-left: 0; border-top: 1px solid hsl(var(--border)); } }
+.transcript-editor .is-review-current { outline: 2px solid hsl(var(--filler)); outline-offset: 2px; }

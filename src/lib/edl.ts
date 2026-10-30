@@ -13,6 +13,8 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { reconcileTranscript } from "./transcriptEdits";
+import { reconcileFillerReview, type FillerReviewMetadata } from "./fillerReview";
+import type { FillerAudio } from "./fillerActions";
 import type { TranscriptMetadata } from "./transcript";
 
 export type MediaId = string;
@@ -45,6 +47,11 @@ export interface Segment {
   sourceOut: number;
   /** Optional occurrence-scoped text overlay; audio anchors remain in words. */
   transcript?: TranscriptMetadata;
+  /** Stable across splits; distinct for repeated placements and fresh recognition. */
+  occurrenceLineage?: string;
+  /** Export must honor these EDL boundaries without adding pre-roll. */
+  precise?: boolean;
+  fillerAudio?: FillerAudio;
 }
 
 export type ExportPreset = "youtube-1080p" | "podcast-audio" | "custom";
@@ -96,6 +103,7 @@ export interface Project {
   media: Record<MediaId, SourceMedia>;
   segments: Segment[];
   settings: ProjectSettings;
+  fillerReview?: FillerReviewMetadata;
   /** Optional — older v2.0 projects don't have this field. Empty by default. */
   chapters?: Chapter[];
   /** Optional — music beds / sfx mixed under the main EDL. Empty by default. */
@@ -373,7 +381,7 @@ export function deleteWords(project: Project, wordIds: ReadonlySet<string>): Pro
     }
   }
 
-  return { ...project, segments: nextSegments, updatedAt: new Date().toISOString() };
+  return reconcileFillerReview({ ...project, segments: nextSegments, updatedAt: new Date().toISOString() });
 }
 
 /**
@@ -467,7 +475,7 @@ export function removeSilences(
 
   if (removed === 0) return [project, 0];
   return [
-    { ...project, segments: nextSegments, updatedAt: new Date().toISOString() },
+    reconcileFillerReview({ ...project, segments: nextSegments, updatedAt: new Date().toISOString() }),
     removed,
   ];
 }
@@ -484,6 +492,7 @@ export function addMediaWithTranscript(
     words,
     sourceIn: 0,
     sourceOut: media.duration,
+    ...(project.segments.some((s) => s.precise) ? { precise: true } : {}),
   };
   return {
     ...project,

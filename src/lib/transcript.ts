@@ -1,4 +1,5 @@
 /** Phase 1 foundations. Pure APIs; the legacy editor does not write overlays yet. */
+import { validateFillerReview } from "./fillerReview";
 import { computeTimeline, type Project, type Segment, type Word } from "./edl";
 
 export interface TranscriptRun {
@@ -162,6 +163,7 @@ export function validateTranscript(
 /** Existing outer project version stays 1; metadata has its own version. */
 export function validateProjectTranscripts(project: Project): void {
   requireValid(project.version === 1, "unsupported project version");
+  validateFillerReview(project);
   const occurrences = new Set<string>();
   const segments = new Set<string>();
   for (const segment of project.segments) {

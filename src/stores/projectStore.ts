@@ -8,6 +8,7 @@
  * EDL is tiny compared to the media files it references.
  */
 
+import { reconcileFillerReview } from "@/lib/fillerReview";
 import { temporal, type TemporalState } from "zundo";
 import { create, useStore } from "zustand";
 import {
@@ -190,6 +191,7 @@ export const useProjectStore = create<ProjectState>()(
       pauseTokens: [],
 
       setProject: (p) => {
+        p = reconcileFillerReview(p);
         validateProjectTranscripts(p);
         set({ project: p, dirty: true });
       },
@@ -198,6 +200,7 @@ export const useProjectStore = create<ProjectState>()(
         if (_get().project !== expected)
           throw new Error("The transcript changed. Select the passage again.");
         if (next === expected) return;
+        next = reconcileFillerReview(next);
         validateProjectTranscripts(next);
         const temporal = useProjectStore.temporal.getState();
         const join =

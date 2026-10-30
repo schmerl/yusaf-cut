@@ -6,33 +6,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 
-/**
- * Filler tokens (matched against the bare lowercase text after stripping
- * surrounding punctuation). Kept in sync with the design's amber-highlight
- * intent — these are conversational fillers that "Remove fillers" targets.
- */
-export const FILLER_WORDS = new Set<string>([
-  "um",
-  "uh",
-  "umm",
-  "uhh",
-  "er",
-  "erm",
-  "ah",
-  "ahh",
-  "hmm",
-  "mhm",
-  "mm",
-  "like",
-  "basically",
-  "literally",
-  "actually",
-  "honestly",
-  "you-know",
-  "youknow",
-  "sortof",
-  "kindof",
-]);
+import { matchFillers } from "@/lib/fillers";
 
 export interface WordAttrs {
   wordId: string;
@@ -97,12 +71,10 @@ export const WordNode = Node.create({
     const confidence = node.attrs.confidence as number;
     const deleted = node.attrs.deleted as boolean;
     const text = (node.textContent ?? "").toLowerCase();
-    // Strip surrounding punctuation so "um," / "uh." still match.
-    const bare = text.replace(/[\s.,!?;:"'()[\]{}—–-]/g, "");
     const classes = ["word"];
     if (deleted) classes.push("is-deleted");
     if (confidence < 0.6) classes.push("low-confidence");
-    if (FILLER_WORDS.has(bare) && !deleted) classes.push("is-filler");
+    if (matchFillers(text).length > 0 && !deleted) classes.push("is-filler");
     return [
       "span",
       mergeAttributes(HTMLAttributes, { class: classes.join(" ") }),

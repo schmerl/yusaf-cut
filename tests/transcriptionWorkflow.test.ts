@@ -1,3 +1,6 @@
+import edgesFixture from "./fixtures/filler-retained-edges.json";
+import { fillerCandidates } from "@/lib/fillerReview";
+import reviewFixture from "./fixtures/filler-review.json";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { createSnapshot, recordTranscriptionApplication, saveProject, transcribe } from "@/lib/ipc";
@@ -334,4 +337,27 @@ it("does not count an invisible leading separator retained by a speech cut as a 
   ]);
   replaceProjectBaseline(cut);
   expect(correctedOccurrences(captureTranscription(true))).toBe(0);
+});
+
+ it("invalidates review decisions on re-transcription even if recognition reuses all word IDs and timings", async () => {
+  const p = structuredClone(reviewFixture) as Project;
+  replaceProjectBaseline(p);
+  const before = fillerCandidates(p);
+  expect(before.some((c) => c.outcome === "text-removed")).toBe(true);
+  vi.mocked(transcribe).mockResolvedValueOnce({ mediaId: "m1", words: p.segments[0]!.words, engine: "whisper-cpp" });
+  const result = await runTranscription(captureTranscription(true), settings);
+  expect(result.project.fillerReview!.decisions).toEqual([]);
+  const after = fillerCandidates(result.project);
+  expect(after.length).toBeGreaterThan(0);
+  expect(after.every((c) => !before.some((old) => old.id === c.id))).toBe(true);
+  expect(new Set(result.project.segments.map((s) => s.occurrenceLineage)).size).toBe(2);
+});
+
+it("clears retained-edge provenance when recognition replaces those source fragments", async () => {
+  const p = structuredClone(edgesFixture) as Project;
+  replaceProjectBaseline(p);
+  vi.mocked(transcribe).mockResolvedValueOnce({ mediaId: "m1", words: p.segments.filter((s) => s.words.length).flatMap((s) => s.words), engine: "whisper-cpp" });
+  const result = await runTranscription(captureTranscription(true), settings);
+  expect(result.project.segments.every((s) => !s.fillerAudio)).toBe(true);
+  validateProjectTranscripts(result.project);
 });

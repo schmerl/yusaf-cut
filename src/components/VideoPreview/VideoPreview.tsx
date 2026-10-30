@@ -1,5 +1,7 @@
+import { FillerAudition } from "./FillerAudition";
+import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
 /**
- * Video preview panel with full playback controls.
+ * Video preview panel with full playback controls and isolated filler auditions.
  *
  * Key behaviours:
  *  - When there are no transcribed words yet the video plays freely (no EDL constraints).
@@ -69,6 +71,7 @@ function videoErrorMessage(error: MediaError) {
 export function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const project = useProjectStore((s) => s.project);
+  const audition = useFillerAuditionStore((s) => s.request);
   const playing = usePlayerStore((s) => s.playing);
   const muted = usePlayerStore((s) => s.muted);
   const rate = usePlayerStore((s) => s.rate);
@@ -100,7 +103,6 @@ export function VideoPreview() {
     : fallbackMediaPath;
   const src = mediaPath ? convertFileSrc(mediaPath) : null;
   const outputDuration = totalDuration(project);
-  const hasTranscriptWords = hasWords(project);
 
   // While scrubbing, follow the drag; otherwise follow the player store.
   const displayedProgress = scrubbing
@@ -120,6 +122,12 @@ export function VideoPreview() {
   const playVideo = useCallback(() => {
     const el = videoRef.current;
     if (!el) return false;
+    if (useFillerAuditionStore.getState().request) {
+      playIntentRef.current = false;
+      el.pause();
+      setPlaying(false);
+      return false;
+    }
     playIntentRef.current = true;
     if (!el.currentSrc && src) {
       el.load();
@@ -132,12 +140,21 @@ export function VideoPreview() {
     }
     const promise = el.play();
     if (promise) {
-      promise.catch((err: DOMException) => {
-        if (err.name === "AbortError") return;
-        setLoadState("error");
-        setLoadMessage(err.message || "Playback failed.");
-        if (playIntentRef.current) setPlaying(false);
-      });
+      promise
+        .then(() => {
+          if (!playIntentRef.current || useFillerAuditionStore.getState().request) el.pause();
+        })
+        .catch((err: DOMException) => {
+          if (
+            err.name === "AbortError" ||
+            !playIntentRef.current ||
+            useFillerAuditionStore.getState().request
+          )
+            return;
+          setLoadState("error");
+          setLoadMessage(err.message || "Playback failed.");
+          if (playIntentRef.current) setPlaying(false);
+        });
     }
     setPlaying(true);
     return true;
@@ -254,7 +271,7 @@ export function VideoPreview() {
   const syncPlaybackClock = useCallback(
     (precise?: number) => {
       const el = videoRef.current;
-      if (!el || scrubbing) return;
+      if (!el || scrubbing || useFillerAuditionStore.getState().request) return;
       const mediaId = activeMediaId ?? firstMediaId(project);
       if (!mediaId) return;
 
@@ -275,6 +292,13 @@ export function VideoPreview() {
         );
       }
       if (index < 0) return;
+      while (
+        timeline[index + 1] &&
+        srcTime >= timeline[index]!.sourceOut &&
+        timeline[index + 1]!.mediaId === mediaId &&
+        timeline[index + 1]!.sourceIn === timeline[index]!.sourceOut
+      )
+        index++;
       const entry = timeline[index]!;
       playbackSegmentRef.current = entry.segmentId;
 
@@ -310,12 +334,16 @@ export function VideoPreview() {
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
+    if (audition) {
+      pauseVideo();
+      return;
+    }
     if (playing && el.paused) {
       playVideo();
     } else if (!playing && !el.paused) {
       pauseVideo();
     }
-  }, [pauseVideo, playVideo, playing]);
+  }, [audition, pauseVideo, playVideo, playing]);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -334,6 +362,7 @@ export function VideoPreview() {
   // both this handler and the effect called play() in quick succession.
   useEffect(() => {
     const handler = (e: Event) => {
+      useFillerAuditionStore.getState().stop();
       const ce = e as CustomEvent<{ start: number; mediaId?: string }>;
       const el = videoRef.current;
       if (!el) return;
@@ -392,6 +421,12 @@ export function VideoPreview() {
       setPlaying(false);
     };
     const onPlay = () => {
+      if (!playIntentRef.current || useFillerAuditionStore.getState().request) {
+        playIntentRef.current = false;
+        el.pause();
+        setPlaying(false);
+        return;
+      }
       setLoadState("ready");
       setPlaying(true);
     };
@@ -428,13 +463,15 @@ export function VideoPreview() {
       },
       [syncPlaybackClock],
     ),
-    playing,
+    playing && !audition,
+    src,
   );
 
   useEffect(() => {
     // Block starting playback while a heavy edit is processing (pausing is fine).
     const editLocked = () => useUIStore.getState().isProcessingEdit;
     function onPlay() {
+      useFillerAuditionStore.getState().stop();
       if (editLocked()) return;
       playVideo();
     }
@@ -442,10 +479,12 @@ export function VideoPreview() {
       pauseVideo();
     }
     function onToggle() {
+      useFillerAuditionStore.getState().stop();
       if (usePlayerStore.getState().playing) pauseVideo();
       else if (!editLocked()) playVideo();
     }
     function onSeekOutput(e: Event) {
+      useFillerAuditionStore.getState().stop();
       const ce = e as CustomEvent<{ time: number; play?: boolean }>;
       const wantsPlay = ce.detail.play && !editLocked();
       seekToOutputTime(ce.detail.time, { play: wantsPlay });
@@ -492,6 +531,7 @@ export function VideoPreview() {
   }, [project, seekToOutputTime, selectedWordIds]);
 
   const handleScrubStart = () => {
+    useFillerAuditionStore.getState().stop();
     setScrubbing(true);
     setScrubValue(displayedProgress);
   };
@@ -511,7 +551,10 @@ export function VideoPreview() {
   };
 
   const handleSkip = useCallback(
-    (delta: number) => seekToOutputTime(currentTime + delta),
+    (delta: number) => {
+      useFillerAuditionStore.getState().stop();
+      seekToOutputTime(currentTime + delta);
+    },
     [seekToOutputTime, currentTime],
   );
 
@@ -521,6 +564,7 @@ export function VideoPreview() {
   };
 
   const handlePlayPause = () => {
+    useFillerAuditionStore.getState().stop();
     if (playing) {
       setRate(1);
       pauseVideo();
@@ -541,7 +585,7 @@ export function VideoPreview() {
     return () => el.removeEventListener("loadedmetadata", onLoaded);
   }, [src]);
 
-  const displayDuration = hasTranscriptWords ? outputDuration : nativeDuration;
+  const displayDuration = hasTimeline(project) ? outputDuration : nativeDuration;
   const pct = (displayedProgress / 1000) * 100;
 
   // ── No media loaded ───────────────────────────────────────────────────────
@@ -557,8 +601,12 @@ export function VideoPreview() {
   return (
     <div className="flex h-full flex-col bg-black">
       {/* Video area */}
-      <div className="flex flex-1 items-center justify-center overflow-hidden bg-black">
-        <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_48%)]">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-black">
+        <FillerAudition />
+        <div
+          aria-hidden={Boolean(audition)}
+          className={`relative flex h-full w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_48%)]${audition ? " invisible" : ""}`}
+        >
           <video
             key={src}
             ref={videoRef}
@@ -657,7 +705,7 @@ export function VideoPreview() {
           <span className="ml-1.5 select-none text-xs tabular-nums text-white/50">
             {formatTimecode(currentTime, { ms: false })}
             <span className="mx-1 text-white/25">/</span>
-            {formatTimecode(displayDuration, { ms: false })}
+            {formatTimecode(displayDuration, { ms: true })}
           </span>
 
           <div className="ml-auto flex items-center gap-0.5">

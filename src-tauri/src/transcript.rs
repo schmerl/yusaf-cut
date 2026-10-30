@@ -121,6 +121,7 @@ fn validate_segment(segment: &Segment, metadata: &TranscriptMetadata) -> Result<
 /// Validate before persistence or restoration, without mutating legacy data.
 pub fn validate_project(project: &Project) -> Result<()> {
     ensure!(project.version == 1, "unsupported project version");
+    crate::filler_review::validate(project)?;
     let mut occurrences = HashSet::new();
     let mut segments = HashSet::new();
     for segment in &project.segments {

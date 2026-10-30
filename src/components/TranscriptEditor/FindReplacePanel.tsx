@@ -4,34 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
-import { ChevronDown, ChevronUp, Eraser, Replace, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Replace, Search, X } from "lucide-react";
 import type { Project } from "@/lib/edl";
 import { findTranscriptMatches, type TranscriptMatch } from "@/lib/transcriptSearch";
-import { cn } from "@/lib/utils";
-
-/** Default list of "filler" words a transcript editor typically wants removed. */
-export const DEFAULT_FILLERS = [
-  "um",
-  "uh",
-  "umm",
-  "uhh",
-  "er",
-  "erm",
-  "ah",
-  "ahh",
-  "hmm",
-  "mhm",
-  "mm",
-  "like",
-  "basically",
-  "literally",
-  "actually",
-  "honestly",
-  "right",
-  "okay",
-  "ok",
-  "so",
-] as const;
 
 interface FindReplacePanelProps {
   /** Hide the panel. The parent owns visibility state. */
@@ -42,7 +17,7 @@ interface FindReplacePanelProps {
 export function FindReplacePanel({ onClose, onResults }: FindReplacePanelProps) {
   const project = useProjectStore((s) => s.project);
   const applyTextEdits = useProjectStore((s) => s.applyTextEdits);
-  const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
+
   const pushToast = useUIStore((s) => s.pushToast);
 
   const [find, setFind] = useState("");
@@ -50,10 +25,6 @@ export function FindReplacePanel({ onClose, onResults }: FindReplacePanelProps) 
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [matchIndex, setMatchIndex] = useState(0);
-  const [showFillerMenu, setShowFillerMenu] = useState(false);
-  const [selectedFillers, setSelectedFillers] = useState<Set<string>>(
-    new Set(["um", "uh", "umm", "uhh", "er", "erm", "ah", "hmm"]),
-  );
 
   const findInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -122,34 +93,6 @@ export function FindReplacePanel({ onClose, onResults }: FindReplacePanelProps) 
     } else {
       pushToast({ title: `Cut ${n} speech ${n === 1 ? "match" : "matches"}` });
     }
-  }
-
-  function handleRemoveFillers() {
-    let n: number;
-    try {
-      n = deleteWordsByText(selectedFillers);
-    } catch (error) {
-      pushToast({ title: "Cannot cut speech", description: String(error), variant: "destructive" });
-      return;
-    }
-    if (n === 0) {
-      pushToast({ title: "No filler words found" });
-    } else {
-      pushToast({
-        title: `Removed ${n} filler ${n === 1 ? "word" : "words"}`,
-        description: "Press ⌘Z to undo",
-      });
-    }
-    setShowFillerMenu(false);
-  }
-
-  function toggleFiller(token: string) {
-    setSelectedFillers((prev) => {
-      const next = new Set(prev);
-      if (next.has(token)) next.delete(token);
-      else next.add(token);
-      return next;
-    });
   }
 
   return (
@@ -221,7 +164,7 @@ export function FindReplacePanel({ onClose, onResults }: FindReplacePanelProps) 
           {matches[current]!.context.slice(matches[current]!.to)}
         </p>
       )}
-      {/* ── Row 2: replace + filler removal ─────────────────────────────── */}
+      {/* ── Row 2: replace + filler review ─────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2">
         <Replace className="h-4 w-4 shrink-0 text-muted-foreground" />
         <input
@@ -263,66 +206,13 @@ export function FindReplacePanel({ onClose, onResults }: FindReplacePanelProps) 
           Cut matching speech
         </Button>
 
-        <div className="relative ml-auto">
-          <Button
-            size="sm"
-            variant="default"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => setShowFillerMenu((v) => !v)}
-          >
-            <Eraser className="h-3.5 w-3.5" />
-            Cut filler speech
-            <ChevronDown
-              className={cn("h-3.5 w-3.5 transition-transform", showFillerMenu && "rotate-180")}
-            />
-          </Button>
-          {showFillerMenu && (
-            <div className="absolute right-0 top-9 z-20 w-72 rounded-md border border-border bg-popover p-3 shadow-lg">
-              <div className="mb-2 text-xs font-medium text-muted-foreground">
-                Select filler speech to cut
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {DEFAULT_FILLERS.map((token) => {
-                  const on = selectedFillers.has(token);
-                  return (
-                    <button
-                      key={token}
-                      type="button"
-                      onClick={() => toggleFiller(token)}
-                      className={cn(
-                        "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                        on
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background text-foreground hover:bg-accent",
-                      )}
-                    >
-                      {token}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mt-3 flex justify-end gap-1.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs"
-                  onClick={() => setShowFillerMenu(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-7 text-xs"
-                  onClick={handleRemoveFillers}
-                  disabled={selectedFillers.size === 0}
-                >
-                  Cut selected filler speech
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => useUIStore.getState().setFillerReviewOpen(true)}
+        >
+          Review fillers
+        </Button>
 
         {/* Options */}
         <label className="flex select-none items-center gap-1 text-xs text-muted-foreground">

@@ -29,16 +29,8 @@ import {
 } from "@/lib/edl";
 import { useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { FILLER_WORDS } from "@/components/TranscriptEditor/WordNode";
+import { fillerCandidates } from "@/lib/fillerReview";
 import { formatTimecode } from "@/lib/timecode";
-
-function bareToken(text: string): string {
-  return text.toLowerCase().replace(/[\s.,!?;:"'()[\]{}—–-]/g, "");
-}
-
-function isFiller(word: Word): boolean {
-  return FILLER_WORDS.has(bareToken(word.text));
-}
 
 function amplitude(word: Word, index: number): number {
   let hash = index + 17;
@@ -184,6 +176,7 @@ export function Waveform() {
   const { bars, ticks } = useMemo(() => {
     if (pxPerSecond <= 0) return { bars: [] as BarSpec[], ticks: [] as TickSpec[] };
     const timeline = computeTimeline(project);
+    const fillers = fillerCandidates(project);
     let wordIndex = 0;
     const nextBars: BarSpec[] = [];
     for (const entry of timeline) {
@@ -194,6 +187,16 @@ export function Waveform() {
         wordIndex += segment.words.length;
         continue;
       }
+      if (segment.fillerAudio)
+        nextBars.push({
+          id: segment.id,
+          leftPx: entry.outputStart * pxPerSecond,
+          widthPx: Math.max(2, (entry.outputEnd - entry.outputStart) * pxPerSecond),
+          height: 18,
+          filler: true,
+          selected: false,
+          label: `${segment.fillerAudio.text}: retained audio edge`,
+        });
       for (const word of segment.words) {
         const outputStart = entry.outputStart + Math.max(0, word.start - entry.sourceIn);
         const outputEnd = entry.outputStart + Math.max(0, word.end - entry.sourceIn);
@@ -202,11 +205,11 @@ export function Waveform() {
         const leftPx = outputStart * pxPerSecond;
         const widthPx = Math.max(2, (outputEnd - outputStart) * pxPerSecond);
         nextBars.push({
-          id: word.id,
+          id: `${segment.id}:${word.id}`,
           leftPx,
           widthPx,
           height: amplitude(word, idx),
-          filler: isFiller(word),
+          filler: fillers.some((c) => c.segmentId === segment.id && c.anchorIds.includes(word.id)),
           selected: selectedWordIds.has(word.id),
           label: word.text,
         });
@@ -216,21 +219,25 @@ export function Waveform() {
     // Density-aware tick step. At higher zoom we want finer divisions.
     const visibleDuration = Math.max(visibleEndSec - visibleStartSec, 1e-3);
     const tickStep =
-      visibleDuration > 600 ? 60 :
-      visibleDuration > 240 ? 30 :
-      visibleDuration > 90 ? 10 :
-      visibleDuration > 30 ? 5 :
-      visibleDuration > 10 ? 1 :
-      visibleDuration > 3 ? 0.5 :
-      0.1;
+      visibleDuration > 600
+        ? 60
+        : visibleDuration > 240
+          ? 30
+          : visibleDuration > 90
+            ? 10
+            : visibleDuration > 30
+              ? 5
+              : visibleDuration > 10
+                ? 1
+                : visibleDuration > 3
+                  ? 0.5
+                  : 0.1;
     const nextTicks: TickSpec[] = [];
     const firstTick = Math.ceil(visibleStartSec / tickStep) * tickStep;
     for (let t = firstTick; t <= visibleEndSec + 1e-6; t += tickStep) {
       nextTicks.push({
         leftPx: t * pxPerSecond,
-        label: tickStep < 1
-          ? formatTimecode(t, { ms: true })
-          : formatTimecode(t, { ms: false }),
+        label: tickStep < 1 ? formatTimecode(t, { ms: true }) : formatTimecode(t, { ms: false }),
       });
     }
     return { bars: nextBars, ticks: nextTicks };
@@ -251,9 +258,7 @@ export function Waveform() {
     if (!mapped) return;
     setCurrentTime(outputTime);
     window.dispatchEvent(
-      new CustomEvent("yusafcut:seek-source", {
-        detail: { start: mapped.sourceTime, mediaId: mapped.segment.mediaId },
-      }),
+      new CustomEvent("yusafcut:seek-output", { detail: { time: outputTime, play: true } }),
     );
     usePlayerStore.getState().setPlaying(true);
   }
@@ -337,8 +342,7 @@ export function Waveform() {
   const visibleFraction = railWidth > 0 ? Math.min(1, containerWidth / railWidth) : 1;
   const minimapWindowLeft = railWidth > 0 ? (scrollLeft / railWidth) * MINIMAP_WIDTH_PX : 0;
   const minimapWindowWidth = visibleFraction * MINIMAP_WIDTH_PX;
-  const minimapPlayheadLeft =
-    duration > 0 ? (currentTime / duration) * MINIMAP_WIDTH_PX : 0;
+  const minimapPlayheadLeft = duration > 0 ? (currentTime / duration) * MINIMAP_WIDTH_PX : 0;
 
   return (
     <div className="timeline-panel">
@@ -377,10 +381,7 @@ export function Waveform() {
               className="timeline-minimap-window"
               style={{ left: minimapWindowLeft, width: minimapWindowWidth }}
             />
-            <div
-              className="timeline-minimap-playhead"
-              style={{ left: minimapPlayheadLeft }}
-            />
+            <div className="timeline-minimap-playhead" style={{ left: minimapPlayheadLeft }} />
           </div>
         )}
 
@@ -391,10 +392,7 @@ export function Waveform() {
         </div>
       </div>
 
-      <div
-        ref={scrollRef}
-        className={zoomed ? "timeline-scroll is-zoomed" : "timeline-scroll"}
-      >
+      <div ref={scrollRef} className={zoomed ? "timeline-scroll is-zoomed" : "timeline-scroll"}>
         <div
           ref={railRef}
           className="timeline-rail"

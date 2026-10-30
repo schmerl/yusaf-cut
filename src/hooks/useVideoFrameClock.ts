@@ -49,6 +49,7 @@ export function useVideoFrameClock(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   onTick: FrameClockTick,
   enabled: boolean,
+  mediaKey?: string | number | null,
 ): void {
   // Keep the latest tick in a ref so we don't tear down the loop just because
   // a parent re-rendered and produced a new closure.
@@ -65,7 +66,8 @@ export function useVideoFrameClock(
     let rvfcHandle: number | null = null;
     let rafHandle: number | null = null;
 
-    const hasRVFC = typeof el.requestVideoFrameCallback === "function";
+    // Audio-only media has no presented video frames to drive rVFC.
+    const hasRVFC = typeof el.requestVideoFrameCallback === "function" && el.videoWidth > 0;
 
     if (hasRVFC) {
       const loop = (_now: number, metadata: RVFCMetadata) => {
@@ -93,5 +95,5 @@ export function useVideoFrameClock(
         window.cancelAnimationFrame(rafHandle);
       }
     };
-  }, [enabled, videoRef]);
+  }, [enabled, mediaKey, videoRef]);
 }

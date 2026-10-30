@@ -77,7 +77,11 @@ export interface TranscribeResult {
 }
 
 /** Best-effort checkpoint showing that the frontend received or applied bridge output. */
-export function recordTranscriptionApplication(runId: string, phase: "received" | "applied", wordCount: number): Promise<void> {
+export function recordTranscriptionApplication(
+  runId: string,
+  phase: "received" | "applied",
+  wordCount: number,
+): Promise<void> {
   return invoke<void>("record_transcription_application", { runId, phase, wordCount });
 }
 
@@ -333,4 +337,32 @@ export function detectPauses(opts: DetectPausesOpts): Promise<PauseSegment[]> {
   // payload must be wrapped under an `opts` key — otherwise Tauri rejects the
   // call with "missing required key opts".
   return invoke<PauseSegment[]>("detect_pauses", { opts: args });
+}
+
+/** Render the exact edited passage once; playback has no per-cut source seeks. */
+export function prepareFillerAudition(
+  project: Project,
+  start: number,
+  end: number,
+  requestId: string,
+): Promise<{ path: string; duration: number }> {
+  return invoke("prepare_filler_audition", { project, start, end, requestId });
+}
+export function releaseFillerAudition(requestId: string): Promise<void> {
+  return invoke("release_filler_audition", { requestId });
+}
+
+export interface FillerBoundaryEstimate {
+  start: number | null;
+  end: number | null;
+  reason: string;
+  limitedByNeighbor: boolean;
+}
+/** Analyze a local window bounded by neighboring anchors; never edits a project. */
+export function estimateFillerBoundaries(
+  project: Project,
+  segmentId: string,
+  anchorIds: string[],
+): Promise<FillerBoundaryEstimate> {
+  return invoke("estimate_filler_boundaries", { project, segmentId, anchorIds });
 }

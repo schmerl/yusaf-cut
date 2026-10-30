@@ -11,7 +11,8 @@ import { useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { totalDuration } from "@/lib/edl";
 import { formatTimecode } from "@/lib/timecode";
-import { FILLER_WORDS } from "@/components/TranscriptEditor/WordNode";
+import { fillerCandidates } from "@/lib/fillerReview";
+import { projectTranscript } from "@/lib/transcript";
 import { JobsFlyout } from "@/components/StatusBar/JobsFlyout";
 
 export function StatusBar() {
@@ -19,17 +20,17 @@ export function StatusBar() {
   const dirty = useProjectStore((s) => s.dirty);
   const currentTime = usePlayerStore((s) => s.currentTime);
 
-  const { wordCount, fillerCount } = useMemo(() => {
-    let words = 0;
-    let fillers = 0;
-    for (const seg of project.segments) {
-      for (const w of seg.words) {
-        words++;
-        const bare = w.text.toLowerCase().replace(/[\s.,!?;:"'()[\]{}—–-]/g, "");
-        if (FILLER_WORDS.has(bare)) fillers++;
-      }
-    }
-    return { wordCount: words, fillerCount: fillers };
+  const { wordCount, fillerCount, audioRetainedCount } = useMemo(() => {
+    const words = projectTranscript(project).reduce(
+      (count, block) => count + block.text.split(/\s+/u).filter(Boolean).length,
+      0,
+    );
+    const candidates = fillerCandidates(project);
+    return {
+      wordCount: words,
+      fillerCount: candidates.length,
+      audioRetainedCount: candidates.filter((c) => c.hidden).length,
+    };
   }, [project]);
 
   const duration = totalDuration(project);
@@ -53,6 +54,7 @@ export function StatusBar() {
           <span className="sep">·</span>
           <span>
             {fillerCount} filler{fillerCount === 1 ? "" : "s"}
+            {audioRetainedCount ? ` (${audioRetainedCount} text hidden)` : ""}
           </span>
         </>
       )}
@@ -62,7 +64,7 @@ export function StatusBar() {
       <span>
         {formatTimecode(currentTime, { ms: false })}
         <span style={{ opacity: 0.5 }}> / </span>
-        {formatTimecode(duration, { ms: false })}
+        {formatTimecode(duration, { ms: true })}
       </span>
     </div>
   );

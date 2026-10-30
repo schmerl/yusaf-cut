@@ -42,6 +42,12 @@ pub struct Segment {
     pub source_out: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript: Option<crate::transcript::TranscriptMetadata>,
+    #[serde(default, rename = "occurrenceLineage", skip_serializing_if = "Option::is_none")]
+    pub occurrence_lineage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precise: Option<bool>,
+    #[serde(default, rename = "fillerAudio", skip_serializing_if = "Option::is_none")]
+    pub filler_audio: Option<crate::filler_review::FillerAudio>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -102,6 +108,8 @@ pub struct Project {
     pub media: HashMap<MediaId, SourceMedia>,
     pub segments: Vec<Segment>,
     pub settings: ProjectSettings,
+    #[serde(default, rename = "fillerReview", skip_serializing_if = "Option::is_none")]
+    pub filler_review: Option<crate::filler_review::FillerReviewMetadata>,
     /// Optional — older v2.0 projects deserialise with `chapters = Vec::new()`.
     #[serde(default)]
     pub chapters: Vec<Chapter>,
@@ -130,6 +138,7 @@ mod tests {
             },
             chapters: vec![],
             audio_tracks: vec![],
+            filler_review: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: Project = serde_json::from_str(&json).unwrap();

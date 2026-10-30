@@ -1,3 +1,5 @@
+import { v4 as uuid } from "uuid";
+import { reconcileFillerReview } from "./fillerReview";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { projectSession, replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -121,6 +123,8 @@ export async function runTranscription(
         const updated = {
           ...segment,
           transcript: undefined,
+          occurrenceLineage: uuid(),
+          fillerAudio: undefined,
           words: result.words.filter(
             (word) => word.end > segment.sourceIn && word.start < segment.sourceOut,
           ),
@@ -129,6 +133,7 @@ export async function runTranscription(
       }),
       updatedAt: new Date().toISOString(),
     };
+    next = reconcileFillerReview(next);
     validateProjectTranscripts(next);
     if (!cached && settings.engine !== "crisper-whisper")
       cacheWrites.push({ mediaId, words: result.words });
