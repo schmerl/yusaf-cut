@@ -6,7 +6,9 @@
 
 ## 1. What we're building
 
-An open-source desktop video editor for macOS (Apple Silicon) where **the transcript IS the timeline**. Delete words in the transcript, the corresponding video disappears. Reorder paragraphs, the video reorders. Everything runs **100% locally** using the Mac's CPU/GPU/Neural Engine — no cloud, no telemetry, no API keys required.
+An open-source desktop video editor for macOS (Apple Silicon) where **the transcript IS the timeline**. Correct transcript text directly without changing the recording; explicitly **Cut speech** to remove the corresponding audio/video. Review filler occurrences individually, listen to a proposed cut, and choose whether to keep the sound, hide its text, or cut it. Reorder paragraphs, the video reorders. Everything runs **100% locally** using the Mac's CPU/GPU/Neural Engine — no cloud, no telemetry, no API keys required.
+
+This document includes the implemented manual transcript-correction and filler-review workflows. The original build phases remain as project history; the behavior specified below supersedes their earlier text-deletion and bulk-filler designs. Detailed requirements and acceptance records are linked from the relevant sections.
 
 **Product name (working):** YusafCut
 **License:** AGPL-3.0 (or MIT — decide before first public release)
@@ -116,12 +118,15 @@ export interface Word {
 export interface Segment {
   id: string;
   mediaId: MediaId;
-  words: Word[];             // contiguous slice of original transcription
-  // Derived: segment in/out come from words[0].start and words[-1].end
-  // BUT we store explicit `sourceIn`/`sourceOut` to support trimming
-  // beyond word boundaries (e.g. preserving breath room).
+  words: Word[];             // source timing anchors, not corrected display text
+  // Explicit ranges govern playback/duration, independently of displayed text.
+  // They support trimming beyond word boundaries and wordless retained edges.
   sourceIn: number;
   sourceOut: number;
+  transcript?: TranscriptMetadata; // versioned display runs, originals, anchor mappings
+  occurrenceLineage?: string; // stable across splits; distinct for repeated placements
+  precise?: boolean;         // honor exact EDL edges in export, without added padding
+  fillerAudio?: FillerAudio; // provenance for wordless retained filler-edge audio
 }
 
 export interface Project {
@@ -132,6 +137,7 @@ export interface Project {
   updatedAt: string;
   media: Record<MediaId, SourceMedia>;
   segments: Segment[];       // ORDER MATTERS — this is the timeline
+  fillerReview?: FillerReviewMetadata; // versioned detection policy and review decisions
   settings: {
     exportPreset: "youtube-1080p" | "podcast-audio" | "custom";
     paddingMs: number;       // default audio padding around cuts, e.g. 80ms
@@ -141,10 +147,22 @@ export interface Project {
 
 ### Key invariants
 
-1. **Words are never mutated.** Deletes remove words from a segment (or split a segment). Words never have their `start`/`end` rewritten.
+1. **Recognition anchors are immutable during editing.** Corrected display text lives in an occurrence-scoped transcript overlay; ordinary text deletion hides text while retaining its audio anchors. Explicit speech cuts remove source ranges. Text corrections never rewrite word `start`/`end` values.
 2. **Source timecodes are immutable.** A word's `start`/`end` always refers to the original source media. The "output" timeline is derived by concatenating segments in order.
-3. **Segments are the unit of cut.** Deleting a range of words splits the segment at the boundary and drops the middle segment.
-4. **All edits are EDL transformations.** No edit ever touches a video file until export.
+3. **Segments are the unit of cut.** Explicitly cutting speech splits surviving source ranges and removes the selected interval. Duration derives from segment ranges, not displayed word counts; wordless retained audio edges can survive a filler cut.
+4. **All edits are project transformations.** Text corrections change transcript metadata; speech cuts change the EDL. Source media is never modified. Preview may render temporary derived clips before final export.
+5. **Repeated placements are independent.** Correcting or reviewing one occurrence of reused media must not change another occurrence. Playback, highlighting, and review decisions use occurrence identity as well as source time.
+
+The schema above is an excerpt. `TranscriptMetadata` stores versioned blocks/runs,
+original recognized words (including text-hidden words), and anchor associations;
+a corrected phrase may share one timing group. `FillerReviewMetadata` stores the
+detection policy and occurrence-specific Keep/text-removal decisions. Skip and
+audition settings are session state. Full types live in `src/lib/edl.ts`,
+`src/lib/transcript.ts`, `src/lib/fillerReview.ts`, and `src/lib/fillerActions.ts`.
+Optional metadata round-trips through native save/load and snapshots while the
+outer project format remains version 1. Older projects load without manual
+migration; unsupported metadata versions are rejected, and older app binaries
+may discard the new fields on save.
 
 ### Derived: output timeline
 
@@ -173,15 +191,17 @@ export function computeTimeline(project: Project): TimelineEntry[] {
 
 ## 4. MVP scope (Phase 1 — ship in ~4–6 weeks of focused work)
 
-**Definition of MVP:** A single-user can open a `.mp4`, get a transcript, delete words, preview the cut, and export a new `.mp4`. That's it.
+**Definition of MVP:** A single user can open a `.mp4`, get a transcript, explicitly cut speech, preview the cut, and export a new `.mp4`. The implemented editor also supports text-only corrections and individual filler review as described below.
 
 ### MVP feature list
 
 - [ ] Open a single video file (`.mp4`, `.mov`)
 - [ ] Transcribe with Whisper (`large-v3-turbo` default, model picker in settings)
 - [ ] Display transcript with word-level highlighting synced to playback
-- [ ] Click any word → seek video to that timestamp
-- [ ] Select word range → delete → segment splits, preview reflects cut
+- [ ] Click places the caret; Cmd-click seeks to the word/phrase's output position
+- [ ] Type, paste, or delete transcript text without changing audio/video
+- [ ] Select words or whole timing groups → Cut speech → preview reflects cut
+- [ ] Review fillers individually with before/preview/result playback and independent text/audio choices
 - [ ] Undo / redo (50 steps)
 - [ ] Save / load project file (`.scribe` — JSON + media references)
 - [ ] Export cut video as `.mp4` (H.264, AAC, hardware-accelerated)
@@ -190,14 +210,15 @@ export function computeTimeline(project: Project): TimelineEntry[] {
 ### Out of MVP scope (Phase 2+)
 
 - Multiple source files / multi-clip projects
-- Filler word detection ("um", "uh", "you know")
 - Speaker diarization
 - LLM-powered editing ("cut this to 90 seconds", "remove tangents")
 - Subtitle/caption export (SRT, VTT)
 - Custom export presets
 - Reorder paragraphs by drag
-- Search & replace in transcript
 - B-roll / overlay tracks
+
+Manual transcript correction, contextual find/replace, original-text restoration,
+and filler review have since been implemented; they are no longer deferred items.
 
 ---
 
@@ -287,38 +308,58 @@ Tasks:
 
 ### Phase 3 — Transcript editor UI (Day 9–14)
 
-**Goal:** Render the transcript. Click to seek. Select to highlight.
+**Goal:** Edit transcript text directly, with playback-linked highlighting and explicit speech cuts.
 
 Tasks:
-1. **TipTap setup with custom Word node.** Each word is a TipTap node with attributes `{ wordId, start, end, confidence }`. Words are inline nodes inside paragraph nodes.
+1. **TipTap setup with timed transcript runs.** Project display runs into editable inline nodes inside paragraphs, retaining associations to immutable source word anchors. A corrected phrase may map to several original words as one timing group.
 2. **Render strategy.** Paragraphs are grouped by speaker (later) or by sentence-end punctuation + pause heuristics (now). A pause > 750ms starts a new paragraph.
 3. **Playback sync.** Subscribe to `<video>` `timeupdate`. Find the word whose `[start, end]` brackets `currentTime`. Add a CSS class `is-playing` to that word. Smooth-scroll if it goes off-screen.
-4. **Click to seek.** Click a word → set `video.currentTime = word.start`.
+4. **Caret and seeking.** Click places the caret. Cmd-click seeks to the word/timing group's start in the selected output occurrence without changing playing/paused state. Ordinary selection and typing must not seek.
 5. **Selection.** Standard text selection works because TipTap is just contenteditable underneath. Track which words are selected via ProseMirror's selection state.
-6. **Low-confidence styling.** Words with `confidence < 0.6` get a subtle yellow underline so the user knows to verify them.
+6. **Recognition styling.** Low recognition confidence can mark original recognition for review; it must not be presented as confidence in user-authored text. Vocal filler highlighting follows the shared policy in section 6.1.
 
-**Acceptance:** Open a transcribed video. Words highlight as it plays. Click any word, it seeks. Drag-select a range, see selection.
+#### Editable transcript behavior
+
+- Editing is enabled by default. Type, paste plain text, correct capitalization/punctuation, or replace phrases with different word counts. Delete/Backspace and Cmd-X remove text only; audio, source ranges, playback order, and output duration stay unchanged.
+- A replacement such as “item potency” → “idempotency” shares the original phrase's timing span. Highlight and seek the group together; do not invent exact timestamps for newly displayed words or bridge an existing audio cut.
+- Text-hidden words remain audible and recoverable from original-text metadata, but are omitted from transcript display and captions. A paragraph retaining speech must retain non-whitespace text; reject invalid deletion/replacement atomically without saving an empty spoken paragraph.
+- Space and J/K/L type normally while editing. Paste strips external formatting/node attributes. Selection, caret, input-method composition, and autosave must remain stable. Project history owns undo/redo, with useful typing groups and atomic replacements/cuts.
+- Find/replace searches literal words or phrases within projected paragraphs, including corrected groups. Provide previous/next navigation, current-match highlighting, case sensitivity, whole-word matching, Replace current, and atomic Replace all. Partial matching is the default: emphasize the exact substring and lightly shade its containing token; replacement changes only the exact match. Do not match across removed speech or silently apply a partial invalid batch.
+- Selected timing groups or whole paragraphs expose original recognized text and **Restore original text**. Restoration is undoable and survives save/reopen, recovers hidden text, and preserves unrelated corrections and subsequent audio cuts. Legacy projects use their available loaded transcript as the original baseline.
+- Before re-transcription replaces corrections, offer **Cancel**, **Proceed**, and **Snapshot first**. Snapshot first saves the current revision before snapshotting; cancellation or save/snapshot failure stops replacement. Stage results for all requested clips before a guarded commit. Failure, concurrent edits, or project switches leave existing corrections intact. Success replaces the affected recognition baseline while preserving surviving audio ranges and unaffected corrections, and resets session undo; snapshots provide persistent recovery.
+
+**Acceptance:** Correct a phrase, hide a word, find/replace a contextual occurrence,
+and restore original text without changing duration. Cmd-click seeks the correct
+reused-media occurrence. Explicit whole-group cuts shorten the timeline; partial
+group cuts are rejected. Save/reopen, snapshots, and SRT/VTT preserve corrections
+and their timing associations.
+
+See [manual correction requirements](requirements/03-transcript-corrections.md),
+[model design](plans/03-transcript-model-design.md), and
+[acceptance evidence and remaining native checks](transcript-correction-acceptance.md).
 
 ---
 
 ### Phase 4 — The actual editing (Day 15–18)
 
-**Goal:** Delete selected words → video plays without that part.
+**Goal:** Explicitly cut selected speech → video plays without that part.
 
 Tasks:
-1. **Delete operation.** When user presses Delete/Backspace with a word selection:
+1. **Explicit Cut speech operation.** When the user invokes **Cut speech** or **Cmd-Shift-X** with selected words or complete corrected timing groups:
    - Find the segment(s) containing the selected words.
    - Split each affected segment at the selection boundaries (creating up to 3 segments per original).
    - Remove the middle segment(s) — the ones fully inside the selection.
    - Apply `paddingMs` (default 80ms) — keep that much audio before/after each surviving segment edge to avoid clipped consonants.
    - Recompute output timeline.
+   - Reject partial corrected timing groups rather than expanding the cut silently. A whole-paragraph cut includes surviving anchors whose text was previously hidden. Ordinary Delete/Backspace/Cmd-X remain text-only.
+   - Filler-review cuts use the exact validated proposal in section 6.1, without the ordinary cut's additional padding.
 2. **Player playback over the EDL.** This is subtle. Options:
    - **Option A (chosen for MVP):** Use a single `<video>` element. On `timeupdate`, check if `currentTime` is inside a "deleted" range; if so, jump to the next surviving segment's `sourceIn`. Coarse but works.
-   - **Option B (defer):** Pre-render a low-quality proxy of the cut version. Smoother but adds latency.
+   - **Rendered filler auditions (implemented):** Before/Preview/Result use a short locally rendered continuous clip. Render preparation may take time, but internal joins must not introduce source-seek pauses. The main source player remains paused during audition.
 3. **Undo/redo.** Wrap the Zustand store with an undo middleware (e.g. `zundo`). Snapshot the EDL on every edit. Cap at 50 steps.
-4. **Visual feedback.** Deleted words don't disappear from the transcript — they get struck-through and greyed out. The user can re-select and "restore" them (which un-deletes the corresponding segment).
+4. **Visual feedback and recovery.** Text-only deletions disappear from displayed text/captions while their anchors remain. Explicit speech cuts remove the selected speech from the edited timeline. Undo restores a cut; restoring original text alone must not restore cut audio.
 
-**Acceptance:** Delete a sentence, hit play, the audio/video skips that sentence cleanly. Undo brings it back.
+**Acceptance:** Explicitly cut a sentence, hit play, and hear the shortened edit. Undo brings it back. Deleting the sentence's text alone must not remove audio and is rejected if it would empty a spoken paragraph.
 
 **Critical:** The transcript view and the video view must never drift out of sync. The single source of truth is the EDL.
 
@@ -326,30 +367,12 @@ Tasks:
 
 ### Phase 5 — Project save/load (Day 19–20)
 
-Manual correction Phases 2–6 now support editable-by-default text without changing
-source audio ranges. Delete/Backspace/Cmd-X edit text; **Cut speech** and
-Cmd-Shift-X cut the video. Corrected phrases share a timing group, which must be
-selected in full for cutting. Click edits; Cmd-click seeks. The store owns undo,
-while autosave writes are serialized and revision/session checked. Captions use
-corrected display text; original text remains in project/snapshot metadata.
-Contextual search matches literal phrases within projected paragraphs and offers
-Replace current, atomic Replace all, case/Unicode whole-word options, and current
-match navigation/highlighting. Selected timing groups or whole paragraphs expose
-original recognized text and undoable restoration, including text-hidden words.
-Restoration preserves unrelated corrections and surviving EDL ranges; stale
-previews cannot apply. See [the manual checkpoint](manual-transcript-corrections.md).
-Re-transcription offers Cancel, Proceed and Snapshot first. Snapshot first
-saves and snapshots the current corrected revision; cancellation or failure stops
-replacement. Results stage across all requested clips before a guarded commit.
-Concurrent edits/project switches invalidate the request. Success rebuilds raw
-originals for surviving ranges, preserves existing audio cuts and unaffected
-corrections, and resets session undo; snapshots provide persistent recovery.
-
-Correction-model Phase 1 adds optional, versioned segment transcript overlays.
-Original words, stable paragraph/run identity, hidden text, and anchor mappings
-round-trip through native save/load and gzip snapshots. The outer project format
-remains version 1; unsupported project or overlay versions are rejected. Older
-binaries may drop new fields on save. See [the model design](plans/03-transcript-model-design.md).
+Save/load and snapshots preserve the transcript overlays, originals, hidden text,
+timing groups, precise cut boundaries, retained filler-edge provenance, and
+project-level filler detection/review metadata described in sections 3, Phase 3,
+and 6.1. Autosave writes are serialized and revision/session checked: an older
+write cannot clear newer edits or overwrite a different project's state. Review
+navigation, listening, and uncommitted boundary estimates do not dirty the project.
 
 Saved `.scribe` projects are directories. **File → Open Project** selects a
 directory, while the toolbar's **Open** action and drag-and-drop also recognize
@@ -380,7 +403,7 @@ Tasks:
 **Goal:** Render the EDL to a final `.mp4`.
 
 Tasks:
-1. **Generate FFmpeg concat filter.** For each segment in order, build an `-ss <sourceIn> -to <sourceOut> -i <media>` plus a `concat` filter graph.
+1. **Generate the FFmpeg render graph from surviving ranges.** Trim each segment to its EDL interval. Concatenate audio independently and place video frames on the edited output timeline so frame rounding cannot pad each audio join with silence. Support audio-only ranges and retained filler edges.
 2. **Hardware-accelerated encode:**
    ```
    ffmpeg -hwaccel videotoolbox \
@@ -399,6 +422,13 @@ Tasks:
 
 **Acceptance:** Export a 5-minute edit, get a clean `.mp4` that plays in QuickTime, takes under 30s on M2 Pro.
 
+For precise filler cuts, honor the accepted boundaries without adding a second
+padding pass or rounding outward to keyframes. Export must remove the same source
+content as Preview cut/Play result and shorten the timeline by the accepted
+interval. Audio sample timing and video frame timing can differ by their natural
+sample/frame resolution; that must not accumulate into inserted silence at joins.
+Exact cuts bypass smart-copy paths that would change their boundaries.
+
 **Critical:** Use stream-copy (`-c copy`) when no re-encoding is needed (e.g. cuts on keyframes only) — drops export time to seconds. For frame-accurate cuts, you must re-encode the cut boundaries; do a "smart cut" where most of the video is copied and only the few seconds around each cut are re-encoded. This is the killer feature for export speed. Implement re-encode-all for v1, smart-cut for v1.1.
 
 ---
@@ -406,7 +436,7 @@ Tasks:
 ### Phase 7 — Polish for MVP release (Day 25–30)
 
 - [ ] App icon, About dialog, version info
-- [ ] Keyboard shortcuts: Space (play/pause), J/K/L (transport), Cmd+Z/Shift+Cmd+Z (undo), Cmd+S (save), Cmd+E (export), Delete (cut selection)
+- [ ] Keyboard shortcuts: Space (play/pause), J/K/L (transport) outside text editing; Cmd+Z/Shift+Cmd+Z (undo/redo), Cmd+S (save), Cmd+E (export), Cmd-Shift-X (Cut speech). Within the transcript, Space/J/K/L type text and Delete/Backspace/Cmd-X edit text only.
 - [ ] Dark mode (follow system)
 - [ ] Error boundaries — never show a white screen of death
 - [ ] Crash reporter (local file only — no telemetry)
@@ -421,11 +451,68 @@ Tasks:
 
 ## 6. Phase 2 features (post-MVP, prioritized)
 
-Each of these is a 2–5 day feature on its own branch.
+The filler-review and caption workflows below have been implemented. Other
+entries retain their original planning scope; detailed acceptance records take
+precedence over the original effort estimates.
 
-### 6.1 Filler word detection (high value, low effort)
+### 6.1 Individual filler review and cut preview
 
-Run a regex pass over the transcript for `\b(um|uh|like|you know|so|right)\b` plus pause-length heuristics. Show them in a sidebar with a "remove all" button. Bonus: a small classifier model (or LLM call) for context-aware detection ("like" as filler vs. "like" as a verb).
+**Goal:** Review audible filler occurrences individually and choose independently
+whether to retain their transcript text and their recorded speech. This replaces
+the earlier bulk “remove all” filler design; a candidate is not a recommendation
+to delete the word.
+
+#### Detection and navigation
+
+- Use one matching policy for transcript highlighting, review candidates, and counts. Highlight vocal fillers by default, including bracketed recognition such as `[AH]`, `[UM]`, and `[UH]`, with case/punctuation normalization for matching while preserving the displayed spelling.
+- Offer selectable built-in terms and custom literal words/phrases. Ordinary words such as “like” and discourse phrases require explicit opt-in. Prefer longer overlapping phrase matches rather than duplicate candidates. Store detection choices in the project.
+- **Review fillers** opens a panel alongside the transcript, accessible from the transcript toolbar, Toolbox, and Search. Show the current occurrence, neighboring transcript context, source/output times, and queue position in playback order. Highlight the active occurrence in the editor.
+- Include fillers hidden by text-only corrections when their audio survives; label them **Text removed, audio retained**. Provide **Unreviewed**, **Kept**, **Audio retained**, and **All** filters. Resolved text-only decisions leave the default unresolved queue.
+- Keep decisions occurrence-specific, including repeated placements of the same media. Reconcile candidate identity after edits, splits, undo/redo, recognition replacement, and reload; stale candidates must not affect another source interval.
+
+#### Decisions and recovery
+
+| Action | Transcript/captions | Audio/video and duration | Review behavior |
+|---|---|---|---|
+| **Keep** | Preserve current text | Preserve audio and duration | Persist the decision; revisit through Kept |
+| **Remove text only** | Hide this candidate's text | Preserve audio and duration | Revisit through Audio retained |
+| **Cut filler speech** | Remove all of this candidate's text | Remove the validated source interval and shorten the timeline | Keep the accepted item available for result playback and undo |
+| **Skip** | Unchanged | Unchanged | Defer for this session and move to another occurrence |
+
+Keep, text removal, and cuts are individually undoable and do not automatically
+advance. Previous/Next navigation is explicit. Keep and text-removal decisions
+survive save/reopen; Skip resets between sessions. **Undo this decision** reverses
+the current decision when its history is still applicable. To revise an accepted
+cut, undo it, adjust its boundaries, then preview and accept again.
+
+Reject text removal that would leave a spoken paragraph empty. If a correction
+groups a filler with neighboring speech, allow listening and Keep/Skip but disable
+an isolated filler cut; never silently enlarge it to remove the neighboring words.
+
+#### Listening and boundary adjustment
+
+- Playback is explicit: **Play before**, **Preview cut**, **Play result**, and **Stop**. Before and Preview use the same surrounding material; Preview leaves the project unchanged, and Result auditions the accepted edit. Provide adjustable context (initially two seconds each side) and optional looping (initially off); these are session settings.
+- Prepare bounded local audition clips and play continuously through internal joins. Preparation can show progress, but source-seeking delays must not become gaps in the audition. Pause/isolate the main source player. Stop, navigation, project edits/switches, and superseding requests must prevent stale clips or delayed playback events from starting.
+- Put playback above an initially collapsed **Adjust cut boundaries** section. Show a compact removed-duration readout; a round information icon opens recognition timing, neighboring-word limits, and estimation details. Avoid a persistent short-span warning or verbose timing diagnostics in the main card.
+- Adjust Start and End independently in milliseconds, with ±10 ms nudges. Negative Start removes earlier sound; positive Start retains the leading edge. Positive End removes more trailing sound; negative End retains the trailing edge. Show the proposed source range and validate it before preview/acceptance.
+- Bound adjustments by the previous token's end, next token's start (including text-hidden anchors), and existing EDL edges. Reject neighboring-word overlap, crossing an existing cut, an empty range, or an unsafe corrected-group cut.
+- Very short recognition spans (40 ms or less) or uncertain timing trigger a local audio-activity estimate. Search near the occurrence within those neighbor/edit limits; estimate the audible burst rather than removing the entire inter-word gap. This is a conservative acoustic heuristic, not phonetic alignment. Ambiguous audio leaves manual adjustment available.
+- **Estimate audio** requests an estimate for other occurrences; **Original timing** restores zero offsets relative to recognition. Manual changes take precedence over delayed estimates. Recognition anchors remain unchanged. Estimation, adjustment, and preview do not commit a project edit.
+- Preview and acceptance use the same validated cut proposal. Remove the chosen interval rather than muting it; duration must decrease. If adjusted boundaries retain filler edges, preserve their audio/video while removing all candidate text. Carry exact boundaries and retained-edge provenance through save/snapshots/export, without adding ordinary cut padding again.
+
+**Acceptance:** Compare Before, Preview, and Result for a normal filler and a
+very short recognized token. Verify the audible filler is removed from the chosen
+interval, duration shortens, and the continuous join matches export without
+inserted silence. Verify text-only removal retains the sound, decisions affect
+only one occurrence, undo recovers it, and Keep persists while Skip resets.
+Exercise hidden fillers, grouped corrections, neighbor limits, and stale playback.
+
+See [filler-review requirements](requirements/05-filler-review.md),
+[implementation plan and automated evidence](plans/05-filler-review.md),
+[hands-on checkpoint](filler-review-checkpoint.md), and
+[native acceptance checklist](manual-filler-review.md). User hands-on feedback has
+refined this workflow; outstanding native listening/export checks remain recorded
+in the checklist rather than implied complete here.
 
 ### 6.2 Speaker diarization
 
@@ -470,7 +557,7 @@ As described in Phase 6 — copy most of the stream, only re-encode the few seco
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Whisper accuracy too low on accented speech | Medium | Default to `large-v3-turbo`; allow user-correctable transcript with edits preserved across re-transcription. |
+| Whisper accuracy too low on accented speech | Medium | Allow direct text correction; warn before re-transcription replaces corrections and offer Snapshot first for recovery. |
 | Word timestamps drift on long files | Medium | Re-anchor to forced-alignment in v2 (use `whisperX`-style approach with `wav2vec2` for alignment). |
 | Export quality degrades vs original | Low | Default to high bitrate (8 Mbps for 1080p); show bitrate in export dialog. |
 | Tauri sidecar process management gets gnarly | Medium | Use Tauri 2's `Command` API; ensure children die when app quits (`kill_on_drop`). |
@@ -484,8 +571,11 @@ As described in Phase 6 — copy most of the stream, only re-encode the few seco
 
 - **Unit tests (Vitest):** EDL operations (split, merge, delete, undo). Pure functions, 100% coverage target.
 - **Unit tests (Rust):** FFprobe parser, EDL serialization, Whisper JSON parser.
+- **Transcript corrections:** Verify text-only editing leaves source ranges/duration unchanged; whole-group cuts, nonempty paragraphs, literal phrase replacement, restoration, save races, and re-transcription failure/staleness. Round-trip overlays/originals through native project save and snapshots; captions must use corrected display text on the edited timeline.
+- **Filler review:** Verify shared matching, hidden/repeated occurrences, decision reconciliation, atomic undo, exact proposals/neighbor guards, editable estimates, and stale playback cancellation. Use headless FFmpeg content and duration checks to distinguish Before from Preview and detect silence introduced at joins, including cuts shorter than a frame.
 - **Integration tests:** A 30-second test video committed to the repo (creative-commons sample). Tests run the full pipeline: import → transcribe → edit → export → verify output duration.
-- **E2E (manual checklist for now):** Open app, import, transcribe, delete, export. Document in `docs/manual-test.md`.
+- **E2E (manual checklist for now):** Open app, import, transcribe, correct text, explicitly cut speech, and export. Document in `docs/manual-test.md`.
+- **Native acceptance:** Use [transcript correction checks](manual-transcript-corrections.md) and [filler review checks](manual-filler-review.md) for caret/IME behavior, layout, real-speech listening, and Preview/Result/export comparisons. Automated tests do not establish perceptual speech alignment; record performed checks separately from pending ones.
 - **Performance tests:** Track transcribe-time-per-minute-of-audio and export-time-per-minute across CI runs (M-series GitHub runner once available, else local).
 
 ---
