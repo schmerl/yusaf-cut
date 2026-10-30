@@ -1,10 +1,16 @@
 import { v4 as uuid } from "uuid";
 import { reconcileFillerReview } from "./fillerReview";
+import { reconcileScriptReview } from "./scriptLifecycle";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { projectSession, replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import type { Project, Word } from "./edl";
-import { createSnapshot, recordTranscriptionApplication, transcribe, type TranscribeOptions } from "./ipc";
+import {
+  createSnapshot,
+  recordTranscriptionApplication,
+  transcribe,
+  type TranscribeOptions,
+} from "./ipc";
 import { saveProjectRevision } from "./projectSaves";
 import { normalizeTranscript, validateProjectTranscripts } from "./transcript";
 import { readTranscriptCache, writeTranscriptCache } from "./transcriptCache";
@@ -96,9 +102,8 @@ export async function runTranscription(
     const media = expected.media[mediaId]!;
     // The legacy raw cache contains whisper.cpp output without engine metadata.
     // Never reuse or overwrite it for the opt-in CrisperWhisper provider.
-    const cached = request.force || settings.engine === "crisper-whisper"
-      ? null
-      : readTranscriptCache(media);
+    const cached =
+      request.force || settings.engine === "crisper-whisper" ? null : readTranscriptCache(media);
     const result = cached
       ? { mediaId, words: cached }
       : await transcribe({
@@ -109,13 +114,19 @@ export async function runTranscription(
         });
     if ("diagnosticRunId" in result && result.diagnosticRunId) {
       diagnosticRuns.push({ runId: result.diagnosticRunId, mediaId });
-      await recordTranscriptionApplication(result.diagnosticRunId, "received", result.words.length).catch(() => {});
+      await recordTranscriptionApplication(
+        result.diagnosticRunId,
+        "received",
+        result.words.length,
+      ).catch(() => {});
     }
     assertTranscriptionCurrent(request);
     if (result.mediaId !== mediaId)
       throw new Error("Recognition returned a different clip. No transcript was replaced.");
     if (!result.words.length && settings.engine === "crisper-whisper")
-      throw new Error("CrisperWhisper returned no words. See transcription diagnostics in the app data directory.");
+      throw new Error(
+        "CrisperWhisper returned no words. See transcription diagnostics in the app data directory.",
+      );
     next = {
       ...next,
       segments: next.segments.map((segment) => {
@@ -134,6 +145,7 @@ export async function runTranscription(
       updatedAt: new Date().toISOString(),
     };
     next = reconcileFillerReview(next);
+    next = reconcileScriptReview(next);
     validateProjectTranscripts(next);
     if (!cached && settings.engine !== "crisper-whisper")
       cacheWrites.push({ mediaId, words: result.words });
@@ -141,13 +153,16 @@ export async function runTranscription(
   }
   assertTranscriptionCurrent(request);
   if (next !== expected) {
+    next = reconcileScriptReview(next);
     replaceProjectBaseline(next, { dirty: true, filePath: useProjectStore.getState().filePath });
     useProjectStore.getState().setPauseTokens([]);
     usePlayerStore.getState().reset();
     for (const { mediaId, words } of cacheWrites)
       writeTranscriptCache(expected.media[mediaId]!, words);
     for (const { runId, mediaId } of diagnosticRuns) {
-      const appliedWords = next.segments.filter((s) => s.mediaId === mediaId).reduce((n, s) => n + s.words.length, 0);
+      const appliedWords = next.segments
+        .filter((s) => s.mediaId === mediaId)
+        .reduce((n, s) => n + s.words.length, 0);
       await recordTranscriptionApplication(runId, "applied", appliedWords).catch(() => {});
     }
   }

@@ -11,8 +11,12 @@ An open-source desktop video editor for macOS (Apple Silicon) where **the transc
 This document includes the implemented manual transcript-correction and filler-review workflows. The original build phases remain as project history; the behavior specified below supersedes their earlier text-deletion and bulk-filler designs. Detailed requirements and acceptance records are linked from the relevant sections.
 
 Script-assisted corrections are planned in [feature 2 requirements](requirements/02-script-assisted-transcript-corrections.md).
-Development is at the [acoustic listening checkpoint](script-corrections-checkpoint.md);
-this feature is not yet available in the editor. Existing correction behavior is unchanged.
+Development is at the [native review checkpoint](script-corrections-checkpoint.md).
+The prototype stores Markdown revisions, stages whole/selected local audio-backed
+suggestions, protects manual edits, persists review outcomes, and offers explicit
+off-script preview/cutting. Automatic wording correction remains disabled pending
+evaluation. The [acceptance audit](script-corrections-acceptance.md) separates
+implemented/tested behavior from outstanding native and acoustic acceptance.
 
 **Product name (working):** YusafCut
 **License:** AGPL-3.0 (or MIT — decide before first public release)

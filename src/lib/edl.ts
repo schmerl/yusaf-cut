@@ -14,8 +14,10 @@
 import { v4 as uuidv4 } from "uuid";
 import { reconcileTranscript } from "./transcriptEdits";
 import { reconcileFillerReview, type FillerReviewMetadata } from "./fillerReview";
+import { reconcileScriptReview } from "./scriptLifecycle";
 import type { FillerAudio } from "./fillerActions";
 import type { TranscriptMetadata } from "./transcript";
+import type { ScriptAssistance } from "./scriptAssistance";
 
 export type MediaId = string;
 
@@ -104,6 +106,7 @@ export interface Project {
   segments: Segment[];
   settings: ProjectSettings;
   fillerReview?: FillerReviewMetadata;
+  scriptAssistance?: ScriptAssistance;
   /** Optional — older v2.0 projects don't have this field. Empty by default. */
   chapters?: Chapter[];
   /** Optional — music beds / sfx mixed under the main EDL. Empty by default. */
@@ -129,10 +132,7 @@ export const DEFAULT_PADDING_MS = 80;
 
 /** Total duration of the output timeline in seconds. */
 export function totalDuration(project: Project): number {
-  return project.segments.reduce(
-    (acc, seg) => acc + Math.max(0, seg.sourceOut - seg.sourceIn),
-    0,
-  );
+  return project.segments.reduce((acc, seg) => acc + Math.max(0, seg.sourceOut - seg.sourceIn), 0);
 }
 
 /**
@@ -182,11 +182,7 @@ export function sourceTimeToOutput(
 ): { segment: Segment; outputTime: number } | null {
   const timeline = computeTimeline(project);
   for (const entry of timeline) {
-    if (
-      entry.mediaId === mediaId &&
-      sourceTime >= entry.sourceIn &&
-      sourceTime < entry.sourceOut
-    ) {
+    if (entry.mediaId === mediaId && sourceTime >= entry.sourceIn && sourceTime < entry.sourceOut) {
       const segment = project.segments.find((s) => s.id === entry.segmentId);
       if (!segment) return null;
       return { segment, outputTime: entry.outputStart + (sourceTime - entry.sourceIn) };
@@ -368,20 +364,32 @@ export function deleteWords(project: Project, wordIds: ReadonlySet<string>): Pro
       // so we don't accidentally shave off pre/post-roll the user explicitly kept.
       const isFirstRun = i === 0;
       const isLastRun = i === runs.length - 1;
-      const sourceIn = isFirstRun ? seg.sourceIn : Math.max(seg.sourceIn, firstWord.start - paddingSec);
-      const sourceOut = isLastRun ? seg.sourceOut : Math.min(seg.sourceOut, lastWord.end + paddingSec);
+      const sourceIn = isFirstRun
+        ? seg.sourceIn
+        : Math.max(seg.sourceIn, firstWord.start - paddingSec);
+      const sourceOut = isLastRun
+        ? seg.sourceOut
+        : Math.min(seg.sourceOut, lastWord.end + paddingSec);
 
-      nextSegments.push(reconcileTranscript(seg, {
-        id: uuidv4(),
-        mediaId: seg.mediaId,
-        words: run.words,
-        sourceIn,
-        sourceOut,
-      }));
+      nextSegments.push(
+        reconcileTranscript(seg, {
+          id: uuidv4(),
+          mediaId: seg.mediaId,
+          words: run.words,
+          sourceIn,
+          sourceOut,
+        }),
+      );
     }
   }
 
-  return reconcileFillerReview({ ...project, segments: nextSegments, updatedAt: new Date().toISOString() });
+  return reconcileScriptReview(
+    reconcileFillerReview({
+      ...project,
+      segments: nextSegments,
+      updatedAt: new Date().toISOString(),
+    }),
+  );
 }
 
 /**
@@ -458,24 +466,30 @@ export function removeSilences(
       const sourceIn = isFirstRun
         ? seg.sourceIn
         : Math.max(seg.sourceIn, firstWord.start - padding);
-      const sourceOut = isLastRun
-        ? seg.sourceOut
-        : Math.min(seg.sourceOut, lastWord.end + padding);
+      const sourceOut = isLastRun ? seg.sourceOut : Math.min(seg.sourceOut, lastWord.end + padding);
 
-      nextSegments.push(reconcileTranscript(seg, {
-        id: uuidv4(),
-        mediaId: seg.mediaId,
-        words: runWords,
-        sourceIn,
-        sourceOut,
-      }));
+      nextSegments.push(
+        reconcileTranscript(seg, {
+          id: uuidv4(),
+          mediaId: seg.mediaId,
+          words: runWords,
+          sourceIn,
+          sourceOut,
+        }),
+      );
       runStart = runEnd;
     }
   }
 
   if (removed === 0) return [project, 0];
   return [
-    reconcileFillerReview({ ...project, segments: nextSegments, updatedAt: new Date().toISOString() }),
+    reconcileScriptReview(
+      reconcileFillerReview({
+        ...project,
+        segments: nextSegments,
+        updatedAt: new Date().toISOString(),
+      }),
+    ),
     removed,
   ];
 }

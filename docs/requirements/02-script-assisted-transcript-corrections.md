@@ -1,9 +1,11 @@
 # Feature 2: Script-assisted transcript corrections
 
 Status: Requirements consolidated from the user interview on 2026-10-30.
-Ready for phased implementation and acoustic feasibility evaluation; this
-feature is not implemented. Interview decisions are distinguished from the
-operational defaults below.
+Implementation is in progress with a native review prototype; the complete
+automatic feature is not implemented or accepted yet. See the
+[current checkpoint](../script-corrections-checkpoint.md). Interview decisions
+are distinguished from the operational defaults below; acceptance criteria remain
+unchanged.
 
 Agent handoff: [implementation plan](../plans/02-script-assisted-transcript-corrections.md).
 

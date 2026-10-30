@@ -27,6 +27,8 @@ pub struct TranscriptRun {
     pub text: String,
     pub separator_before: String,
     pub anchor_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<crate::script_assistance::EditProvenance>,
 }
 
 fn nonempty(value: &str) -> bool {
@@ -91,6 +93,9 @@ fn validate_segment(segment: &Segment, metadata: &TranscriptMetadata) -> Result<
         ensure!(!block.runs.is_empty(), "empty transcript block");
         let mut has_text = false;
         for run in &block.runs {
+            if let Some(provenance) = &run.provenance {
+                ensure!(provenance.record_id.as_ref().map_or(true, |id| !id.is_empty() && id.encode_utf16().count() <= 128), "invalid provenance record");
+            }
             ensure!(
                 nonempty(&run.id) && ids.insert(&run.id),
                 "duplicate/empty run ID"
@@ -122,6 +127,7 @@ fn validate_segment(segment: &Segment, metadata: &TranscriptMetadata) -> Result<
 pub fn validate_project(project: &Project) -> Result<()> {
     ensure!(project.version == 1, "unsupported project version");
     crate::filler_review::validate(project)?;
+    crate::script_assistance::validate(project)?;
     let mut occurrences = HashSet::new();
     let mut segments = HashSet::new();
     for segment in &project.segments {

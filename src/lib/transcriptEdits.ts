@@ -1,4 +1,6 @@
 import { occurrenceLineage, reconcileFillerReview } from "./fillerReview";
+import type { EditProvenance } from "./scriptAssistance";
+import { reconcileScriptReview } from "./scriptLifecycle";
 import { v4 as uuid } from "uuid";
 import { computeTimeline, deleteWords, type Project, type Segment } from "./edl";
 import {
@@ -23,12 +25,17 @@ function fail(message: string): never {
 }
 function finish(project: Project): Project {
   project = reconcileFillerReview(project);
+  project = reconcileScriptReview(project);
   validateProjectTranscripts(project);
   return { ...project, updatedAt: new Date().toISOString() };
 }
 
 /** A single replacement retains all affected anchors as one timing group. */
-export function replaceTranscriptText(project: Project, edit: TextEdit): Project {
+export function replaceTranscriptText(
+  project: Project,
+  edit: TextEdit,
+  provenance: EditProvenance = { author: "manual" },
+): Project {
   const normalized = normalizeProjectTranscripts(project);
   const block =
     projectTranscript(normalized).find(
@@ -67,6 +74,7 @@ export function replaceTranscriptText(project: Project, edit: TextEdit): Project
     text: replacement.slice(leading.length),
     separatorBefore: leading,
     anchorIds: anchors,
+    provenance,
   };
   const nextBlock = {
     ...stored,
@@ -93,6 +101,7 @@ export function replaceTranscriptBatch(
   project: Project,
   expected: Project,
   edits: TextEdit[],
+  provenance: EditProvenance = { author: "manual" },
 ): Project {
   if (project !== expected) fail("The transcript changed. Review the replacements again.");
   const sorted = [...edits].sort(
@@ -112,7 +121,7 @@ export function replaceTranscriptBatch(
       fail("Overlapping replacements are not supported.");
     previous = edit;
   }
-  return sorted.reduce(replaceTranscriptText, project);
+  return sorted.reduce((next, edit) => replaceTranscriptText(next, edit, provenance), project);
 }
 
 /** Selection restoration is explicit about expanding to complete timing groups.
@@ -173,6 +182,7 @@ export function restoreTranscriptRange(
                           text: originals.get(id)!.text,
                           separatorBefore: i || passage.wholeParagraph ? " " : r.separatorBefore,
                           anchorIds: [id],
+                          provenance: { author: "manual" as const },
                         })),
                   ),
                 },
@@ -235,7 +245,11 @@ export function cutTranscriptRanges(project: Project, ranges: TextRange[]): Proj
 
 /** Used by every EDL split/cut. Never discard the overlay of retained speech. */
 export function reconcileTranscript(source: Segment, target: Segment): Segment {
-  target = { ...target, precise: target.precise ?? source.precise, occurrenceLineage: occurrenceLineage(source) };
+  target = {
+    ...target,
+    precise: target.precise ?? source.precise,
+    occurrenceLineage: occurrenceLineage(source),
+  };
   if (!source.transcript) return target;
   const surviving = new Set(
     target.words
@@ -402,7 +416,8 @@ export function cutOutputSpeech(project: Project, start: number, end: number): P
   let changed = false;
   const segments = edited.segments.flatMap((segment) => {
     const entry = entries.get(segment.id);
-    if (!segment.fillerAudio || !entry || to <= entry.outputStart || from >= entry.outputEnd) return [segment];
+    if (!segment.fillerAudio || !entry || to <= entry.outputStart || from >= entry.outputEnd)
+      return [segment];
     const cutStart = Math.max(segment.sourceIn, segment.sourceIn + from - entry.outputStart);
     const cutEnd = Math.min(segment.sourceOut, segment.sourceIn + to - entry.outputStart);
     changed = true;

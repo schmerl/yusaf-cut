@@ -1,4 +1,5 @@
 import { v4 as uuid } from "uuid";
+import { reconcileScriptReview } from "./scriptLifecycle";
 import { computeTimeline, type Project, type Segment, type Word } from "./edl";
 import {
   fillerCandidates,
@@ -52,7 +53,9 @@ function currentCandidate(project: Project, candidate: FillerCandidate): FillerC
   return current;
 }
 function finish(project: Project): Project {
-  const next = reconcileFillerReview({ ...project, updatedAt: new Date().toISOString() });
+  const next = reconcileScriptReview(
+    reconcileFillerReview({ ...project, updatedAt: new Date().toISOString() }),
+  );
   validateProjectTranscripts(next);
   return next;
 }

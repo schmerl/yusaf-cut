@@ -29,6 +29,8 @@ import { projectSession } from "@/stores/projectStore";
 import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
 import { FillerReviewPanel } from "./FillerReviewPanel";
 import { FindReplacePanel } from "./FindReplacePanel";
+import { ScriptPanel } from "./ScriptPanel";
+import { locateScriptRecord } from "@/lib/scriptLifecycle";
 
 const TimedParagraph = Paragraph.extend({
   addAttributes() {
@@ -107,6 +109,14 @@ export function TranscriptEditor({
     project: Project;
     blocks: Map<string, ProjectedBlock>;
     fillers: FillerCandidate[];
+    scripts: {
+      id: string;
+      segmentId: string;
+      blockId: string;
+      from: number;
+      to: number;
+      status: string;
+    }[];
   } | null>(null);
   const pauseTokens = useProjectStore((s) => s.pauseTokens);
   const past = useTemporalProjectStore((s) => s.pastStates);
@@ -121,6 +131,7 @@ export function TranscriptEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const [error, setError] = useState("");
+  const [scriptOpen, setScriptOpen] = useState(false);
   const [selection, setSelection] = useState<TextRange[]>([]);
   const searchResults = useRef<{
     project: Project;
@@ -199,12 +210,33 @@ export function TranscriptEditor({
               props: {
                 decorations: (state) => {
                   if (projectionCache.current?.project !== model.current) {
+                    const scriptBlocks = projectTranscript(model.current);
                     projectionCache.current = {
                       project: model.current,
                       fillers: fillerCandidates(model.current).filter((c) => !c.hidden),
-                      blocks: new Map(
-                        projectTranscript(model.current).map((b) => [`${b.segmentId}:${b.id}`, b]),
-                      ),
+                      blocks: new Map(scriptBlocks.map((b) => [`${b.segmentId}:${b.id}`, b])),
+                      scripts: (model.current.scriptAssistance?.records ?? []).flatMap((record) => {
+                        if (!["applied", "suggested", "off-script"].includes(record.status))
+                          return [];
+                        const location = locateScriptRecord(model.current, record, scriptBlocks);
+                        return location
+                          ? [
+                              {
+                                id: record.id,
+                                segmentId: location.block.segmentId,
+                                blockId: location.block.id,
+                                from: location.from,
+                                to: location.to,
+                                status:
+                                  record.status === "applied"
+                                    ? "applied"
+                                    : record.status === "off-script"
+                                      ? "off-script"
+                                      : "pending",
+                              },
+                            ]
+                          : [];
+                      }),
                     };
                   }
                   const projected = projectionCache.current.blocks;
@@ -251,6 +283,16 @@ export function TranscriptEditor({
                       ),
                     );
                     const search = searchResults.current;
+                    for (const marker of projectionCache.current!.scripts) {
+                      if (marker.segmentId === block.segmentId && marker.blockId === block.id)
+                        decorations.push(
+                          Decoration.inline(pos + 1 + marker.from, pos + 1 + marker.to, {
+                            class: `is-script-${marker.status}`,
+                            "data-script-record": marker.id,
+                            title: `${marker.status === "applied" ? "Automatic correction" : marker.status === "off-script" ? "Off-script speech" : "Pending script suggestion"} — open Script to review`,
+                          }),
+                        );
+                    }
                     if (search?.project === model.current) {
                       const matches = search.matches.filter(
                         (match) =>
@@ -458,6 +500,10 @@ export function TranscriptEditor({
     const doc = editor.schema.nodeFromJSON(
       json.content.length ? json : { type: "doc", content: [{ type: "paragraph" }] },
     );
+    if (!desiredCaret.current && doc.eq(editor.state.doc)) {
+      editor.view.dispatch(editor.state.tr.setMeta("projection", true));
+      return;
+    }
     const previous = editor.state.selection;
     const logical = desiredCaret.current ?? {
       segmentId: previous.$from.parent.attrs.segmentId as string,
@@ -605,6 +651,16 @@ export function TranscriptEditor({
         <Button
           size="sm"
           variant="ghost"
+          onClick={() => {
+            if (!scriptOpen) setReviewOpen(false);
+            setScriptOpen((open) => !open);
+          }}
+        >
+          Script
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => (findOpen ? onFindClose?.() : onFindOpen?.())}
         >
           Search
@@ -639,7 +695,14 @@ export function TranscriptEditor({
         <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
           Undo
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setReviewOpen(true)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setScriptOpen(false);
+            setReviewOpen(true);
+          }}
+        >
           Review fillers
         </Button>
         {fullParagraphSelected && (
@@ -651,6 +714,13 @@ export function TranscriptEditor({
       <p className="px-4 text-xs text-muted-foreground">
         Typing edits text only. Cmd-click seeks. Cut speech changes the video.
       </p>
+      {scriptOpen && (
+        <ScriptPanel
+          selection={selection}
+          isComposing={() => composed.current}
+          onClose={() => setScriptOpen(false)}
+        />
+      )}
       {inspection && (
         <div
           className="border-b border-border px-4 py-2 text-sm"

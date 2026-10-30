@@ -61,6 +61,7 @@ mod tests {
             chapters: vec![],
             audio_tracks: vec![],
             filler_review: None,
+            script_assistance: None,
         }
     }
 

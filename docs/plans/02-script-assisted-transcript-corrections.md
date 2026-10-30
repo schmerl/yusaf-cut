@@ -1,9 +1,11 @@
 # Implementation plan: feature 2 — script-assisted transcript corrections
 
-Status: Phase 0 started on 2026-10-30 on
-`feature/script-assisted-transcript-corrections`. Baseline checks pass; private
-listening fixtures and a real local decoder comparison are ready. Paused for the
-first human acoustic review; the feature is not implemented yet.
+Status: Implementation in progress on 2026-10-30 on
+`feature/script-assisted-transcript-corrections`. Human listening labels are
+validated. Parser/persistence/provenance and pure matching foundations plus a
+bounded-audio review prototype are implemented. Native walkthrough is the current
+checkpoint. Automatic eligibility/application and held-out acceptance remain
+incomplete; no automatic wording correction is enabled.
 Source of truth: [requirements and acceptance criteria](../requirements/02-script-assisted-transcript-corrections.md).
 The requirements include two user-supplied local project/script evaluation pairs.
 

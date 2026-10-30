@@ -120,3 +120,44 @@ compare individual runs/groups with their available originals, including empty
 hidden runs and ambiguous merged groups. Explicit restoration and later user
 acceptance need provenance even if resulting text equals the baseline. None of
 these provenance hooks has been implemented at this checkpoint.
+
+## Development labels and follow-up experiment
+
+The user supplied all twelve listening labels; validation passed. Only the six
+development labels have been inspected. The labels demonstrate that a correct
+local technical-term/notation rendering can coexist with an intentional nearby
+variation. A whole-clip script-match answer is not a token-level replacement
+license. The user also noted that the item potency/idempotency homophone is
+inherently difficult. Such ambiguity remains pending; no additional model has
+been downloaded or made a product prerequisite.
+
+A larger installed-model experiment produced useful unprompted text, but also
+invented repetitions under the experimental script prompt and omitted a spoken
+restart. Those outcomes concern that prompted/fixed-decoding experiment, not a
+claim that the existing recognition is generally poor. The app prototype uses
+unprompted recognition with ordinary fallback and automatic language detection;
+it does not apply that transcript wholesale.
+
+An experimental scorer was built against official whisper.cpp v1.7.5 commit
+`51c6961c7b64b406833f4b6a4a20e67142f69225` under ignored build output. It scores
+competing complete text sequences autoregressively on recorded audio and on
+silence, and also obtains an unprompted baseline. The public API fills only the
+last logits row: the implementation decodes each next token explicitly, rather
+than reading unfilled batch rows. Scores include end-of-transcript and retain
+per-token log probabilities for private inspection.
+
+On three development clips, the target JSON spelling had a better conditional
+score than the recognition spelling, while the idempotency spelling lost to its
+recognized homophone. Written/spelled path alternatives shared acoustic content;
+a wrong method/identifier scored substantially worse. Exact raw results and
+inputs are in the private study folder. These comparisons are not calibrated
+acoustic probabilities or a release criterion pass: decoder language priors and
+representation/sequence length still affect the scores. No production automatic
+rule has been selected from them.
+
+The reusable experiment sources are `scripts/script-acoustic-score.cpp` and
+`scripts/build-script-acoustic.sh`; the build requires an explicit unmodified
+pinned upstream checkout and never downloads models or installs the app. The
+interface is based on the upstream [public C API](https://github.com/ggml-org/whisper.cpp/blob/v1.7.5/include/whisper.h).
+Neither this experiment nor matching text fixtures replaces held-out listening
+evaluation. All previous release criteria remain unmet until measured.

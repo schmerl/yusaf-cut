@@ -110,6 +110,8 @@ pub struct Project {
     pub settings: ProjectSettings,
     #[serde(default, rename = "fillerReview", skip_serializing_if = "Option::is_none")]
     pub filler_review: Option<crate::filler_review::FillerReviewMetadata>,
+    #[serde(default, rename = "scriptAssistance", skip_serializing_if = "Option::is_none")]
+    pub script_assistance: Option<crate::script_assistance::ScriptAssistance>,
     /// Optional — older v2.0 projects deserialise with `chapters = Vec::new()`.
     #[serde(default)]
     pub chapters: Vec<Chapter>,
@@ -139,6 +141,7 @@ mod tests {
             chapters: vec![],
             audio_tracks: vec![],
             filler_review: None,
+            script_assistance: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: Project = serde_json::from_str(&json).unwrap();

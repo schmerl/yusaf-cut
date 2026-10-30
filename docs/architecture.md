@@ -223,3 +223,45 @@ The Tauri shell supports Linux and Windows, but YusafCut explicitly targets
 Apple Silicon macOS. The architectural choice rests on whisper.cpp's Core ML +
 Metal path and FFmpeg's VideoToolbox. We accept the lock-in for the
 performance moat per spec section 1's non-goals.
+
+## Script-assisted correction development prototype
+
+`scriptMarkdown.ts` parses a stored Markdown copy into spoken passages with raw
+UTF-16 ranges and heading context; it never renders/fetches markup. Optional
+versioned `Project.scriptAssistance` holds exact source revisions and durable
+review evidence, not another writable transcript. `TranscriptRun.provenance`
+protects manual typing, paste, replacement, restoration, hiding and review
+choices. Legacy deviations/hidden or ambiguous merged groups are conservatively
+protected; untouched normalized overlays remain eligible.
+
+`scriptMatching.ts` stages occurrence/anchor-scoped candidates against current
+surviving text, using adjacent context only within a continuous segment. Its
+orthographic heuristics are proposal boundaries, not acoustic proof.
+`scriptWorkflow.ts` captures project reference, session and script revision,
+stages the entire scope, and rejects cancellation or intervening edits (including
+an edit subsequently undone). `commands/script_analysis.rs` extracts bounded
+source windows and runs existing Whisper without script prompts or translation;
+it never downloads models or updates raw recognition caches. Progress and
+cancellation are request-scoped. Model/provider identity and actual analysis
+windows are retained with evidence.
+
+The Script panel shows separate pending, applied and off-script review states.
+`scriptReviewActions.ts` uses existing validated text transactions and explicit
+cuts. Simple punctuation/case changes retain existing timing groups. Off-script
+preview and commit share one immutable proposal and the general bounded timeline
+audition machinery, without filler-token policy. Stale card/preview guards
+prevent applying a decision to a different live item. Editor decorations are
+separate from caption text.
+
+`scriptLifecycle.ts` reconciles review references during ordinary store updates,
+pure text/EDL/filler transforms and successful re-transcription, preserving
+historical evidence and disabling stale actions in that same history step.
+Loading and temporal undo/redo restore captured metadata without inventing a
+project edit. Native `script_assistance.rs` validates persisted revisions,
+UTF-16/source bounds, active references, versions and size limits on ordinary
+save/load and snapshot paths. Older binaries may discard the additive fields.
+
+Automatic wording application is **not enabled** in this prototype. The separate
+experimental C++ contrastive scorer is development tooling, not the app provider
+or a calibrated confidence rule. See the native checkpoint/acceptance audit
+before treating any part of this work as release acceptance.

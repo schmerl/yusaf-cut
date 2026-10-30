@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+.is-script-applied { background: rgb(16 185 129 / 12%); border-bottom: 2px solid #10b981; }
+.is-script-pending { border-bottom: 2px dashed #38bdf8; }
+.is-script-off-script { text-decoration: underline wavy #a855f7; text-underline-offset: 4px; }
+
 @layer base {
   :root {
     --background: 0 0% 100%;

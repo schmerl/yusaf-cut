@@ -8,6 +8,7 @@
 //! 074d1d3 if needed.
 
 mod filler_review;
+mod script_assistance;
 pub mod commands;
 pub mod edl;
 pub mod export_state;
@@ -26,6 +27,7 @@ pub struct AppState {
     pub export: export_state::ExportState,
     pub recording: recording_state::RecordingState,
     pub jobs: jobs::JobQueue,
+    pub script_analysis: commands::script_analysis::ScriptAnalysisState,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -43,6 +45,8 @@ pub fn run() {
             commands::media::start_native_recording,
             commands::media::stop_native_recording,
             commands::transcribe::transcribe,
+            commands::script_analysis::analyze_script_audio,
+            commands::script_analysis::cancel_script_analysis,
             commands::transcribe::record_transcription_application,
             commands::transcribe::list_models,
             commands::transcribe::download_model,

@@ -8,11 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Development
+- Add a script-reconciliation review prototype: stored Markdown revisions and
+  spoken preview, parser warnings, provenance/manual protection, bounded local
+  unprompted audio analysis, selected/whole scope, cancellation/session guards,
+  pending Accept/Dismiss and bulk formatting, and off-script listening/preview/
+  explicit cutting. Scripts and evidence survive saves/snapshots; edits reconcile
+  stale records atomically. Automatic wording application is still disabled.
+- Add native review instructions and a criterion-by-criterion acceptance audit.
+  Keep/Revert for applied records is covered by synthetic fixtures; real automatic
+  generation and held-out evaluation are not complete.
 - Begin script-assisted correction feasibility work with a read-only local
   listening study tool, disposable project copies, source integrity checks,
   development/held-out separation, and unprompted/script/adversarial Whisper
   comparisons. Includes intermediate and planned final human review scripts.
-  Reconciliation UI and automatic correction are not available yet.
+  That initial tooling checkpoint preceded the review prototype above.
 
 ## [4.7.0] - 2026-10-26
 

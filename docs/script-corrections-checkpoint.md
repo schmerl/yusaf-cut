@@ -1,171 +1,184 @@
-# Script corrections: acoustic review checkpoint
+# Script corrections: native review checkpoint
 
-Status: Phase 0 in progress. This is an intermediate checkpoint, not a completed
-feature or a release. Branch: `feature/script-assisted-transcript-corrections`.
+Status: implementation in progress on `feature/script-assisted-transcript-corrections`,
+version `4.8.0-dev.2`. The twelve listening labels validate; that review is complete.
+**The full feature is not complete: automatic wording application is disabled.**
 
-The next required input is human listening labels. The implementation plan
-requires labeled real audio before choosing and enabling automatic wording
-corrections. No new reconciliation command, import UI, automatic application,
-project metadata, or off-script cuts have shipped at this checkpoint.
+This checkpoint combines import, matching, local audio analysis, review, persistence
+and off-script cutting. It is the next useful app walkthrough, not a stop at each phase.
 
 ## What is ready
 
-- `scripts/script-correction-study.py`: read-only source inspection, streaming
-  SHA-256 inventories, bounded mono 16 kHz extraction, blind listening forms,
-  label validation, and local Whisper comparison. Explicit source bounds cannot
-  bridge existing cuts or silently select a different reused occurrence.
-- Each comparison runs an **unprompted** decode, a **script-prompted** decode,
-  and a **deliberately incorrect prompt** control. Outputs are diagnostics, never
-  changes to a project. Raw recognition caches are not read or rewritten.
-- Six development and six held-out clips from the two supplied pairs have been
-  prepared locally. Held-out decoding is locked during development. Labels stay
-  private; the label validator reports completeness without printing their text.
-- Disposable native project copies have new project IDs and retain read-only
-  references to the original media. They contain copied project JSON, not source
-  snapshots or caches. All input files were hashed before and after preparation.
-- Existing baseline: typecheck/lint, 233 frontend tests and 61 Rust tests pass.
-  New evaluation-tool tests cover occurrence isolation, cut boundaries, invalid
-  inputs, changed-source guards, failed preparation, held-out locking, safe HTML,
-  and preserving inputs. See the linked design note for acoustic results.
+- Import/replace a stored UTF-8 Markdown copy and SHA-256 revision through **Script**.
+  Spoken preview excludes headings, cues, comments, images and code blocks; retains
+  labels, inline code, escapes and Unicode. Ambiguous markup has location warnings.
+- Whole/selected reconciliation uses bounded local unprompted Whisper analysis.
+  Context cannot cross existing cuts. Recognition anchors/caches are never rewritten.
+  Results are staged until success and project/session/script validation. Cancel and
+  intervening edits discard staged results; late progress/results are ignored.
+- Pending wording/notation, uncertain alignment and off-script candidates have distinct
+  review states. Local name corrections preserve adjacent fillers/asides. Exact spoken
+  method/path/digit matches can propose written notation. Repeated takes stay uncertain.
+- Accept/Dismiss, bulk punctuation/capitalization, bounded original listening, off-script
+  Preview cut/Cut speech/Keep, history and distinct editor markers. Preview and commit
+  use one immutable proposal with actual source bounds. Stale previews require refresh.
+- Manual typing, paste, replacement, restoration, filler hiding and explicit review
+  decisions retain protection. Untouched normalized overlays remain eligible. Simple
+  formatting preserves existing timing groups; technical/ambiguous formatting stays
+  pending for individual review.
+- Native save/load/snapshots preserve scripts, provenance, review outcomes and bounded
+  acoustic evidence. Edits reconcile stale mappings in the same transaction. Replacement
+  keeps accepted/applied text and old evidence, archives pending/off-script results,
+  starts no new analysis, and is undoable. Successful re-transcription invalidates
+  affected active results; failure preserves them.
 
-Private artifacts are under `/private/tmp/yusafcut-script-study`. This directory
-is temporary and may be cleared by the operating system. Keep the exported labels
-with it until this checkpoint is resolved. Nothing from the private study belongs
-in Git. The reusable tool accepts arbitrary config paths; no private input paths
-or recordings are embedded in its code or tests.
+Keep/Revert controls for applied automatic records are implemented and tested with a
+synthetic shared fixture. This build cannot generate those records through reconciliation;
+it always reports **0 automatic corrections**. No additional acoustic model was downloaded.
+Ambiguous homophones such as item potency/idempotency are ordinary review cases, not a
+prerequisite for installing another model.
 
 ## Human review script — do this now
 
-Allow about 5–10 minutes with headphones.
+Allow about 15–20 minutes. Use only the disposable copies below. They have new project
+IDs and reference the original recordings without modifying them. Autosave writes the
+copy, not the original project. Files in `/private/tmp` can be cleared by the OS.
 
-1. Open the listening page locally:
-
-   ```sh
-   open /private/tmp/yusafcut-script-study/listen.html
-   ```
-
-2. For each of the twelve cards, **listen before expanding the comparison**.
-   Write the words you actually hear. Include repetitions, fillers, unfinished
-   words, and spoken letters/numbers. Technical spellings you know are welcome;
-   use the notes to distinguish what you heard from your interpretation.
-3. Choose **clear**, **uncertain**, or **inaudible**. Then expand the comparison
-   and choose whether the scripted wording matches the audio. Uncertainty is a
-   useful result; do not choose a script word just because it is displayed.
-4. Add notes where an aside or substitution was intentional, or an identifier
-   was spoken differently. Do not simplify repeated or abandoned words away.
-5. Click **Download listening labels** at the bottom. Answers are held only in
-   the open page until downloaded; do not refresh or close before exporting.
-   Save the downloaded `listening-labels.json` into the study folder.
-6. Validate that the export is complete:
+1. Quit any running YusafCut, then open the review build explicitly:
 
    ```sh
-   python3 scripts/script-correction-study.py validate-labels \
-     --study /private/tmp/yusafcut-script-study \
-     --labels /private/tmp/yusafcut-script-study/listening-labels.json
+   open /Users/schmerl/programs/yusaf-cut/src-tauri/target/debug/bundle/macos/YusafCut.app
    ```
 
-7. Tell Codex that the labels are ready and their local path. Do not paste
-   held-out transcriptions into chat; they will be reserved for evaluation after
-   the policy is frozen. If playback/export fails, report the browser and error.
+   Confirm **Script** is present above the transcript. This build has not been installed
+   over the regular app. Alternatively run `npm run tauri:dev` from this branch.
 
-### Optional native-editor check
+2. Use the app's Open action for:
 
-This checks listening bounds against the actual editor. It does **not** test a
-new reconciliation UI, which has not been implemented yet.
+   ```text
+   /private/tmp/yusafcut-script-study/review-project-1.scribe/project.json
+   ```
 
-1. Start the current app with `npm run tauri:dev`.
-2. Open `/private/tmp/yusafcut-script-study/review-project-1.scribe`, using the
-   app's Open action. Its title starts with **Listening study copy**. This is
-   the OpenAPI project. Do not open or save over the original project.
-3. Search for `valid Jason`. Listen around 00:44–00:53; compare the same audio
-   with the `openapi-json` listening card. Confirm that the clip contains the
-   disputed phrase with context, without cutting a syllable at its edges.
-4. Open `/private/tmp/yusafcut-script-study/review-project-2.scribe`. Search for
-   `item potency`; listen around 00:34–00:47. Search for `get slash payments`;
-   listen around 02:57–03:10. Record any boundary or playback discrepancy.
-5. Close the copies. No editing, re-transcription, or saving is needed for this
-   check. Report any discrepancy along with the card ID and what happened.
+   Its title begins **Listening study copy**. Note the initial duration. Do not save
+   over the original `.scribe` project.
 
-## Checks and reproducibility
+3. Open **Script → Import Markdown** and choose
+   `/private/tmp/yusafcut-script-study/script-parser-smoke.md`. Expand **Spoken script
+   preview**. Expect speech after `<press>`, literal GET/path notation, visible link
+   label, escaped/literal angle brackets, café/emoji, and speech after the comment.
+   Title/Setext heading, cue, image alt/destination and code block must not contribute
+   spoken text. Expect a line warning for the unclosed cue, with following speech
+   retained. Transcript and duration must remain unchanged.
 
-```sh
-python3 -m unittest discover -s tests -p test_script_correction_study.py -v
-npm run check
-npm test -- --reporter=dot
-cargo test --lib --offline --manifest-path src-tauri/Cargo.toml
-```
+4. **Replace script** with `script-headings-only.md` from the same folder. Expect a
+   No spoken text error while the previous stored script remains. Cancel a chooser
+   once; cancellation must create no edit. Then replace with `script-openapi.md`.
 
-The private `study-config.json` used for this machine is under
-`/private/tmp/yusafcut-script-study-config`. To recreate artifacts, choose a
-**new** output directory and run:
+5. Search for `valid Jason`. Drag-select its complete spoken paragraph, including
+   punctuation. Choose **Selected passage**, leave **large-v3-turbo** selected, and
+   click **Reconcile script**. Expect progress and a pending Jason → JSON suggestion.
+   Other formatting items are possible. Nothing should be corrected automatically.
+   Listen and inspect the script/audio evidence. Listening/navigation must not resolve
+   an item or change the project.
 
-```sh
-python3 scripts/script-correction-study.py prepare \
-  --config /private/tmp/yusafcut-script-study-config/study-config.json \
-  --output /private/tmp/yusafcut-script-study-2 \
-  --ffmpeg src-tauri/target/debug/ffmpeg
-```
+6. **Accept suggestion** for JSON. Only that occurrence's text changes; duration stays
+   fixed. One **Undo** restores Jason and its pending marker together; **Redo** restores
+   accepted text. Re-select the paragraph and rerun: unchanged resolved items must not
+   duplicate or reopen. Save/reopen the disposable project; confirm stored preview,
+   corrected text and History outcome persist.
 
-A config has `version: 1` and a `cases` array. Every case supplies a unique
-lowercase `id`, project bundle/file path (`project`), UTF-8 `script` path, exact
-`segmentId`, finite `sourceIn`/`sourceOut` seconds (at most 30 seconds),
-`split` (`development` or `held-out`), `scriptExcerpt`, `adversarialPrompt`, and
-`purpose`. Excerpts/prompts are proposed comparisons, never listening labels.
-The script source is hashed and validated as UTF-8; full Markdown parsing is
-future Phase 1 work. The study does not claim to test that parser.
+7. Manually change that paragraph's final period to `!`. Select the paragraph and
+   reconcile. Its punctuation suggestion must require individual acceptance.
+   **Apply punctuation/capitalization** must preserve the manually typed `!`.
+   Leave this item pending for the replacement check below if convenient.
 
-Use `decode --help` for the local engine/model command. Each run writes a new
-diagnostic folder with engine/model hashes, elapsed time, and raw decoder JSON.
-The output is never used as independent ground truth. Ctrl-C or failure records
-the run as failed and does not commit a project change. Models are not installed
-or downloaded by this tool. No cloud provider is involved.
+8. Search for `hail me` around source 01:24, select its full spoken sentence/paragraphs
+   and reconcile. Expect a local hail me → HailMe proposal that does not consume the
+   adjacent `in this [UH] class` aside. Find that aside with the **Off-script** filter.
+   Inspect actual cut bounds, **Listen**, then **Preview cut**. Preview changes nothing.
+   **Cut speech (audio/video)** should shorten duration and match the preview. Listen
+   to the join. **Undo immediately**: speech, duration and review state return together.
+   Then **Keep speech** to retain the intentional aside. Accept the name separately;
+   inspect the Before text when navigating past other pending items.
 
-## Work after this review
+9. **Replace script → script-openapi-updated.md** from the study folder. It differs
+   only by an unspoken comment. Accepted text must remain; pending/off-script results
+   move to History with a replacement reason. No analysis starts. Earlier cards retain
+   their original script evidence. One **Undo** restores the prior script/pending state
+   without undoing unrelated corrections. Save/reopen again if convenient.
 
-1. Validate labels; use only development labels for acoustic design/calibration.
-2. Test/revise a concrete acoustic comparison approach. Prompted agreement and
-   forced alignment are insufficient. Keep automatic application disabled until
-   the predeclared acoustic gates pass.
-3. Implement persisted Markdown/provenance/review foundations, pure matching,
-   bounded local IPC and atomic run/review transactions, then editor review and
-   explicit off-script cutting. Preserve the existing transcript as the only
-   writable display-text representation.
-4. Freeze the rule, evaluate held-out audio and mandatory adversarial cases,
-   perform native acceptance, and complete the SC-01–SC-16 evidence audit.
+10. Start **Whole edited transcript** reconciliation, then **Cancel analysis** while
+    progress is visible. Existing text, decisions and cuts must remain; no partial new
+    results should appear. Also try an uninstalled model (e.g. tiny if absent): expect
+    setup/retry guidance without a download or project change. Restore large-v3-turbo.
 
-The next app checkpoint should combine import, reconciliation and review into
-one useful walkthrough. Do not stop merely because another implementation phase
-ended. Final review will receive an updated script based on actual UI labels.
+11. Open `/private/tmp/yusafcut-script-study/review-project-2.scribe/project.json` and
+    import `script-http.md` from the study folder. Select the full passage containing
+    `get slash payments slash P four five six` around source 03:00 and reconcile.
+    Inspect/accept the GET /payments/P456 proposal. Method, identifier and digits must
+    agree with the audio. Duration stays fixed. Selecting only part of the corrected
+    timing group and using the editor's **Cut speech** must reject without broadening
+    the cut to the whole phrase.
 
-## Final native review script — planned, not runnable yet
+12. Optionally reconcile the sentence starting `Put and delete can change state`
+    around source 07:05, then bulk-apply its capitalization. One Undo restores the
+    complete bulk action. Save/reopen; export SRT/VTT if convenient. Captions must
+    contain only current text, without review labels. Review fillers before/after
+    reconciliation on a disposable copy; hidden text and existing cuts must persist.
 
-This is the coverage target for the final walkthrough, not evidence of passing.
+Report step numbers, actual behavior and error text, and whether preview/committed
+cut joins sounded clean. If an expected item is absent, include scope and result counts.
+Uncertainty is useful feedback; automatic wording correction is unavailable at this
+checkpoint. Do not repeat the original listening-label form.
 
-1. Use disposable copies of both supplied projects. Note duration, existing cuts
-   and a manually corrected/hidden passage; create a named snapshot.
-2. Import the corresponding script. Also test a synthetic script with ATX and
-   Setext headings, `<press>` followed by speech, Unicode, inline notation,
-   escaped brackets, links/images, and code blocks. Invalid import must preserve
-   the prior script and project.
-3. Select a passage containing a recognition error and reconcile. Confirm scope,
-   progress, an audio-supported automatic correction and its active marker.
-   Listen, Keep, Undo/Redo, and Revert a separate correction. Check before/after
-   evidence and preservation of manual edits, fillers and existing cuts.
-4. Review pending items with Accept/Dismiss; bulk-apply punctuation. Each action
-   must be undoable at its documented grouping. Rerun unchanged inputs and verify
-   resolved decisions are not duplicated or reopened.
-5. Save/reopen, recover the snapshot, and replace the script. Check durable
-   evidence, review history, pending invalidation, explicit rerun, and Undo.
-6. Listen to an off-script passage, preview the cut, then Cut speech. Confirm
-   actual cut bounds, duration, playback joins, captions, save/reopen and Undo.
-   Keep an intentional aside. Partial corrected timing groups must reject.
-7. Cancel a run and test missing capability. Controlled automated tests cover
-   concurrent edits/project switches and second-clip failure without risking
-   originals. No staged changes should commit on failure or cancellation.
-8. Repeat after filler hiding/cuts and with reused/multiple clips. Export SRT/VTT;
-   check only current corrected text appears. Text-only operations must preserve
-   exact EDL/export plans and source hashes; explicit speech cuts change duration.
+Optional independence check: after saving, temporarily rename only the study folder's
+`script-openapi.md`, reopen the disposable project and inspect the stored preview. It
+must still work. Restore the temporary filename; do not rename the original script.
 
-Unperformed: all new-feature native acceptance, calibrated/held-out precision,
-native release build, and the final acceptance audit. The label page has not yet
-been visually verified: native Chrome automation timed out in this environment.
+## Evidence and remaining work
+
+See the [acceptance audit](script-corrections-acceptance.md) and
+[acoustic design note](plans/02-script-acoustic-design.md).
+
+Tests cover parser/schema, pure matching, history/actions, real editor controls,
+caption invariants, and controlled async failures. Native save/load/snapshot tests
+preserve scripts/provenance/evidence and reject malformed/future metadata without
+replacing a valid saved project. `tests/fixtures/script-assistance.json` is the shared
+synthetic TS/Rust example, not evidence of real automatic corrections.
+
+Checkpoint validation: typechecking and lint pass, with 293 frontend tests and 65
+Rust tests passing. The debug macOS app is built for the walkthrough; native human
+review remains pending.
+
+Only six development labels have been inspected. Held-out labels/decoding remain
+reserved for a frozen policy. Direct contrastive scoring was prototyped against the
+existing model; it is not the in-app provider or a calibrated automatic rule. Original
+source hashes still match the prepared study. Private scripts, labels, audio, model
+outputs and diagnostics remain outside Git.
+
+Outstanding: native human walkthrough/audible joins, evaluated automatic eligibility
+and atomic application, held-out acoustic metrics, native release build, and final
+SC-01–SC-16 acceptance. Fix walkthrough issues, then complete that work. A review-only
+prototype must not be called the completed automatic feature.
+
+Older app binaries may reject or discard the new metadata. Use this branch's build
+and disposable copies. Project outer version stays 1; metadata is independently
+versioned. There is no backward-write guarantee.
+
+## Final review script — coverage target, not passing evidence
+
+The final walkthrough will be updated for the completed build and include:
+
+1. Valid/invalid Markdown import, whole/selected runs, protected/hidden text, and one
+   successful run's atomic Undo.
+2. Real evaluated automatic corrections with markers, before/after/script/audio,
+   Listen/Keep/Revert and separately undoable review actions.
+3. Pending Accept/Dismiss, bulk formatting, and reruns preserving explicit decisions
+   across reused occurrences.
+4. Save/reopen, script replacement/Undo, snapshots/recovery, and historical evidence
+   associated with the original script revision.
+5. Off-script listening/preview/explicit cut/Keep; actual bounds, audible joins,
+   duration, captions, exports and per-cut Undo.
+6. Safe cancellation/capability checks plus controlled edit/session/second-clip races.
+7. Before/after filler review, existing cuts and multiple/reused clips; source hashes,
+   exact text-only EDL/export invariants, and SRT/VTT inspection.
