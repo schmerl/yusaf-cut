@@ -64,6 +64,49 @@ beforeEach(() => {
   });
 });
 describe("staged audio reconciliation", () => {
+  it("retains valid audio evidence when subsequently finding text differences", async () => {
+    await setup();
+    await runScriptReconciliation(createScriptRun(), undefined, "large-v3-turbo", vi.fn());
+    const afterAudio = useProjectStore.getState().project;
+    native.analyze.mockClear();
+    await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    expect(useProjectStore.getState().project).toBe(afterAudio);
+    expect(native.analyze).not.toHaveBeenCalled();
+  });
+  it("creates immediate review suggestions without a recognizer, progress listener or invented audio evidence", async () => {
+    const before = await setup();
+    const result = await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    expect(result.pending).toBeGreaterThan(0);
+    expect(result.applied).toBe(0);
+    expect(native.analyze).not.toHaveBeenCalled();
+    expect(native.progress).not.toHaveBeenCalled();
+    const after = useProjectStore.getState().project;
+    expect(after.segments).toBe(before.segments);
+    expect(
+      after.scriptAssistance!.records.every(
+        (r) =>
+          r.evidence.engine === "script-text-comparison-v1" &&
+          r.evidence.unprompted === "" &&
+          r.evidence.windows === undefined,
+      ),
+    ).toBe(true);
+    useProjectStore.temporal.getState().undo();
+    expect(useProjectStore.getState().project).toBe(before);
+  });
   it("can cancel during yielded matching before starting the acoustic provider", async () => {
     const p = await setup(),
       run = createScriptRun();

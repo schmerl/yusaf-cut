@@ -959,3 +959,15 @@
 @container (max-width: 650px) { .filler-review { width: 46%; min-width: 245px; } }
 @media (max-width: 1050px) { .transcript-review-layout.review-open { flex-direction: column; } .review-open > .transcript-scroll { min-height: 120px; flex: 1; } .filler-review { width: 100%; max-height: 60%; border-left: 0; border-top: 1px solid hsl(var(--border)); } }
 .transcript-editor .is-review-current { outline: 2px solid hsl(var(--filler)); outline-offset: 2px; }
+
+/* Transcript review stays beside the phrase being reviewed. */
+select, option { color-scheme: dark; background-color: hsl(var(--background)); color: hsl(var(--foreground)); }
+.inline-review-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; padding: .25rem 1rem; border-bottom: 1px solid hsl(var(--border)); }
+.inline-review-toolbar select { border: 1px solid hsl(var(--border)); border-radius: .375rem; padding: .25rem; font-size: .8rem; }
+.inline-review-popover { position: fixed; z-index: 45; width: min(380px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; border: 1px solid hsl(var(--border)); border-radius: .75rem; background: hsl(var(--card)); color: hsl(var(--foreground)); padding: .75rem; box-shadow: 0 12px 36px #0009; font-size: .875rem; }
+.review-options { position: relative; margin-left: auto; font-size: .8rem; }
+.review-options summary { cursor: pointer; padding: .5rem; }
+.review-options-menu { position: absolute; right: 0; z-index: 46; display: grid; width: 260px; padding: .5rem; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: .5rem; }
+.is-script-pending, .is-script-off-script, .is-script-applied, .is-filler { cursor: pointer; }
+
+.inline-review-popover input { color-scheme: dark; background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: .25rem; padding: .25rem; }

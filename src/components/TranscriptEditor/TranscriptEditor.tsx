@@ -29,7 +29,9 @@ import { projectSession } from "@/stores/projectStore";
 import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
 import { FillerReviewPanel } from "./FillerReviewPanel";
 import { FindReplacePanel } from "./FindReplacePanel";
-import { ScriptPanel } from "./ScriptPanel";
+import { InlineReview, selectReviewTarget } from "./InlineReview";
+import { useAppCommands } from "@/lib/appCommands";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { locateScriptRecord } from "@/lib/scriptLifecycle";
 
 const TimedParagraph = Paragraph.extend({
@@ -131,7 +133,7 @@ export function TranscriptEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const [error, setError] = useState("");
-  const [scriptOpen, setScriptOpen] = useState(false);
+  const future = useTemporalProjectStore((s) => s.futureStates);
   const [selection, setSelection] = useState<TextRange[]>([]);
   const searchResults = useRef<{
     project: Project;
@@ -289,7 +291,10 @@ export function TranscriptEditor({
                           Decoration.inline(pos + 1 + marker.from, pos + 1 + marker.to, {
                             class: `is-script-${marker.status}`,
                             "data-script-record": marker.id,
-                            title: `${marker.status === "applied" ? "Automatic correction" : marker.status === "off-script" ? "Off-script speech" : "Pending script suggestion"} — open Script to review`,
+                            role: "button",
+                            tabindex: "0",
+                            "aria-label": "Review script suggestion",
+                            title: `${marker.status === "applied" ? "Automatic correction" : marker.status === "off-script" ? "Off-script speech" : "Pending script suggestion"} — click to review`,
                           }),
                         );
                     }
@@ -320,7 +325,10 @@ export function TranscriptEditor({
                           Decoration.inline(pos + 1 + candidate.from, pos + 1 + candidate.to, {
                             class: `is-filler${candidate.id === reviewIdRef.current ? " is-review-current" : ""}`,
                             "data-filler-id": candidate.id,
-                            title: "Filler candidate — Review fillers to listen and decide",
+                            role: "button",
+                            tabindex: "0",
+                            "aria-label": "Review filler",
+                            title: "Filler candidate — click to review",
                           }),
                         );
                     }
@@ -355,8 +363,19 @@ export function TranscriptEditor({
                   return true;
                 },
                 handleKeyDown: (view, event) => {
-                  const mod = event.metaKey || event.ctrlKey;
                   if (event.isComposing || composed.current) return false;
+                  const mod = event.metaKey || event.ctrlKey;
+                  const marker = (event.target as HTMLElement)?.closest<HTMLElement>(
+                    "[data-script-record], [data-filler-id]",
+                  );
+                  if (!mod && marker && ["Enter", " "].includes(event.key)) {
+                    event.preventDefault();
+                    if (marker.dataset.scriptRecord)
+                      selectReviewTarget({ kind: "script", id: marker.dataset.scriptRecord });
+                    else if (marker.dataset.fillerId)
+                      selectReviewTarget({ kind: "filler", id: marker.dataset.fillerId });
+                    return true;
+                  }
                   if (mod && event.shiftKey && event.key.toLowerCase() === "x") {
                     event.preventDefault();
                     if (editorRef.current) cut(editorRef.current);
@@ -437,8 +456,9 @@ export function TranscriptEditor({
                   return false;
                 },
                 handleDOMEvents: {
-                  compositionstart: () => {
+                  compositionstart: (view) => {
                     composed.current = true;
+                    view.dom.setAttribute("data-composing", "true");
                     compositionBase.current = model.current;
                     endTypingGroup();
                     return false;
@@ -447,6 +467,7 @@ export function TranscriptEditor({
                     // WebKit's final input may arrive after compositionend.
                     timer.current = setTimeout(() => {
                       composed.current = false;
+                      view.dom.removeAttribute("data-composing");
                       try {
                         if (
                           externalDuringComposition.current ||
@@ -492,7 +513,10 @@ export function TranscriptEditor({
     [],
   );
 
+  const syncedSession = useRef(projectSession());
   function sync(editor: Editor, p: Project) {
+    const sameSession = syncedSession.current === projectSession();
+    syncedSession.current = projectSession();
     model.current = p;
     local.current = null;
     pending.current = null;
@@ -511,16 +535,29 @@ export function TranscriptEditor({
       offset: previous.$from.parentOffset,
     };
     desiredCaret.current = null;
+    const oldIndex = sameSession ? previous.$from.index(0) : 0;
     let caret = 1;
-    doc.forEach((node, pos) => {
-      if (node.attrs.blockId === logical.blockId && node.attrs.segmentId === logical.segmentId)
+    doc.forEach((node, pos, index) => {
+      if (index === Math.min(oldIndex, doc.childCount - 1))
         caret = pos + 1 + Math.min(logical.offset, node.content.size);
+    });
+    doc.forEach((node, pos) => {
+      if (
+        sameSession &&
+        node.attrs.blockId === logical.blockId &&
+        node.attrs.segmentId === logical.segmentId
+      ) {
+        caret = pos + 1 + Math.min(logical.offset, node.content.size);
+      }
     });
     const tr = editor.state.tr
       .replaceWith(0, editor.state.doc.content.size, doc.content)
       .setMeta("externalTranscript", true);
     tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(caret, tr.doc.content.size))));
+    const scroll = editor.view.dom.closest(".transcript-scroll");
+    const top = scroll?.scrollTop;
     editor.view.dispatch(tr);
+    if (scroll && top !== undefined) scroll.scrollTop = sameSession ? top : 0;
   }
 
   const editor = useEditor({
@@ -602,6 +639,22 @@ export function TranscriptEditor({
   }, [editor, reviewId]);
 
   function seek(event: React.MouseEvent) {
+    if (
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !composed.current &&
+      editorRef.current?.state.selection.empty
+    ) {
+      const target = event.target as HTMLElement;
+      const marker = target.closest<HTMLElement>("[data-script-record], [data-filler-id]");
+      if (marker) {
+        if (marker.dataset.scriptRecord)
+          selectReviewTarget({ kind: "script", id: marker.dataset.scriptRecord });
+        else if (marker.dataset.fillerId)
+          selectReviewTarget({ kind: "filler", id: marker.dataset.fillerId });
+        return;
+      }
+    }
     if (!event.metaKey && !event.ctrlKey) return;
     const target = (event.target as HTMLElement).closest<HTMLElement>("[data-output-start]");
     if (!target) return;
@@ -643,83 +696,52 @@ export function TranscriptEditor({
     const b = blocks.find((b) => b.id === r.blockId && b.segmentId === r.segmentId);
     return b && r.from === 0 && r.to === b.text.length;
   });
+  useAppCommands({
+    find: () => onFindOpen?.(),
+    "cut-speech": () => {
+      if (editor) cut(editor);
+    },
+    original: () => inspect(!selection.length),
+  });
+
   return (
     <div className="flex h-full w-full flex-col">
       {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} onResults={onSearchResults} />}
-      <div className="transcript-toolbar flex-wrap">
-        <span className="label">Transcript</span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            if (!scriptOpen) setReviewOpen(false);
-            setScriptOpen((open) => !open);
-          }}
-        >
-          Script
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => (findOpen ? onFindClose?.() : onFindOpen?.())}
-        >
-          Search
-        </Button>
-        <Button
-          size="sm"
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!selection.length}
-          onClick={() => editor && cut(editor)}
-          title="Remove selected audio/video (⌘⇧X)"
-        >
-          Cut speech ⌘⇧X
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={selection.length !== 1}
-          onClick={() => inspect(false)}
-        >
-          View original selection
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!blocks.length}
-          onClick={() => inspect(true)}
-        >
-          View paragraph original
-        </Button>
-        <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
-          Undo
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setScriptOpen(false);
-            setReviewOpen(true);
-          }}
-        >
-          Review fillers
-        </Button>
-        {fullParagraphSelected && (
-          <span className="text-xs text-muted-foreground">
-            Paragraph cut includes text-hidden speech
-          </span>
-        )}
-      </div>
-      <p className="px-4 text-xs text-muted-foreground">
-        Typing edits text only. Cmd-click seeks. Cut speech changes the video.
-      </p>
-      {scriptOpen && (
-        <ScriptPanel
-          selection={selection}
-          isComposing={() => composed.current}
-          onClose={() => setScriptOpen(false)}
-        />
+      <InlineReview
+        selection={selection}
+        isComposing={() => composed.current}
+        onAdvancedFillers={() => setReviewOpen(true)}
+        toolbarActions={
+          <>
+            <span className="label mr-2">Transcript</span>
+            <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
+              Undo
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!future.length}
+              onClick={() => history(true)}
+            >
+              Redo
+            </Button>
+            {selection.length > 0 && (
+              <Button
+                size="sm"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => editor && cut(editor)}
+                title="Remove selected audio/video (⌘⇧X)"
+              >
+                Cut speech
+              </Button>
+            )}
+          </>
+        }
+      />
+      {fullParagraphSelected && (
+        <p className="px-4 text-xs text-muted-foreground">
+          Paragraph cut includes text-hidden speech
+        </p>
       )}
       {inspection && (
         <div
@@ -792,15 +814,32 @@ export function TranscriptEditor({
             ))}
         </details>
       )}
-      <div className={`transcript-review-layout ${reviewOpen ? "review-open" : ""}`}>
+      <div className="transcript-review-layout">
         <div className="transcript-scroll min-w-0 flex-1" onClick={seek}>
           <EditorContent editor={editor} />
         </div>
         {reviewOpen && (
-          <FillerReviewPanel
-            key={`${project.id}:${projectSession()}`}
-            onClose={() => setReviewOpen(false)}
-          />
+          <Dialog open onOpenChange={setReviewOpen}>
+            <DialogContent
+              className="max-h-[85vh] overflow-y-auto"
+              onEscapeKeyDown={(event) => {
+                const details = (event.target as HTMLElement)?.closest("details[open]");
+                if (details) {
+                  event.preventDefault();
+                  details.removeAttribute("open");
+                }
+              }}
+            >
+              <DialogTitle>Filler settings and detailed review</DialogTitle>
+              <DialogDescription>
+                Detection settings, timing adjustments and retained audio.
+              </DialogDescription>
+              <FillerReviewPanel
+                key={`${project.id}:${projectSession()}`}
+                onClose={() => setReviewOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
         )}
       </div>
       {!blocks.length && (

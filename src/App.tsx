@@ -6,6 +6,7 @@ import { Waveform } from "@/components/Waveform/Waveform";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ProcessingOverlay } from "@/components/ProcessingOverlay";
 import { Toaster } from "@/components/ui/toaster";
+import { useNativeMenu } from "@/hooks/useNativeMenu";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useTranscribeProgress } from "@/hooks/useTranscribeProgress";
@@ -33,6 +34,7 @@ function isSupportedMediaPath(path: string) {
 
 export default function App() {
   useKeyboardShortcuts();
+  useNativeMenu();
   useAutoSave();
   useTranscribeProgress();
 
@@ -114,9 +116,14 @@ export default function App() {
         useProjectStore.getState().addMediaWithTranscript(media, cachedWords);
         usePlayerStore.getState().clearTimelineRange();
         usePlayerStore.getState().setSelectedWordIds(new Set());
-        window.dispatchEvent(new CustomEvent("yusafcut:seek-output", { detail: { time: appendAt } }));
+        window.dispatchEvent(
+          new CustomEvent("yusafcut:seek-output", { detail: { time: appendAt } }),
+        );
         pushToast({
-          title: cachedWords.length > 0 ? "Dropped clip added with cached transcript" : "Dropped clip added",
+          title:
+            cachedWords.length > 0
+              ? "Dropped clip added with cached transcript"
+              : "Dropped clip added",
           description:
             cachedWords.length > 0
               ? media.path
@@ -136,9 +143,10 @@ export default function App() {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
-        const path = event.payload.paths.find(isProjectPath)
-          ?? event.payload.paths.find(isSupportedMediaPath)
-          ?? event.payload.paths[0];
+        const path =
+          event.payload.paths.find(isProjectPath) ??
+          event.payload.paths.find(isSupportedMediaPath) ??
+          event.payload.paths[0];
         if (path) void addDroppedClip(path);
       })
       .then((dispose) => {

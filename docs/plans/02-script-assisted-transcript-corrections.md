@@ -15,6 +15,17 @@ Acoustic findings, predeclared release criterion and integration inventory:
 delivered tooling, checks, unperformed acceptance and exact next work. No
 automatic wording correction is enabled.
 
+## Approved workflow revision after native review
+
+The next checkpoint is `4.8.0-dev.3`: combined recording/optional-script opening,
+native application menus, and inline script/filler decisions with compact category
+and previous/next navigation. Text suggestions bypass Whisper; explicit audio
+checking remains available. Selected runs scope navigation, existing decisions and
+independent evidence persist, and Undo-restored occurrences require no refresh.
+Cut synchronization preserves transcript scroll. Detailed source/evidence/settings
+are on demand. See the current checkpoint for the replacement human script. Full
+automatic application/evaluation work remains outstanding after workflow acceptance.
+
 ## Outcome and delivery order
 
 Import a Markdown teleprompter script, reconcile the whole edited transcript or

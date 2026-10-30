@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Development
+- Replace persistent script/filler review panels with a shared inline popover and
+  compact transcript review toolbar. Show text suggestions without waiting for
+  Whisper; retain explicit local audio checking and existing independent evidence.
+- Add recording-plus-optional-script opening and native macOS File/Edit/Review/
+  Window menus, including project Undo/Redo and shared toolbar commands. Move script
+  management and detailed filler settings into dialogs.
+- Preserve transcript scroll during cuts, retain passage-scoped review navigation,
+  and allow Undo → Keep immediately after validating the restored occurrence.
+  Discard obsolete previews and late filler boundary estimates.
 - Add a script-reconciliation review prototype: stored Markdown revisions and
   spoken preview, parser warnings, provenance/manual protection, bounded local
   unprompted audio analysis, selected/whole scope, cancellation/session guards,

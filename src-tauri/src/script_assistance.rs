@@ -335,6 +335,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn text_only_suggestions_save_without_claiming_audio_evidence() {
+        let bundle = std::env::temp_dir().join(format!("script-text-{}.scribe", uuid::Uuid::new_v4()));
+        let mut project = fixture();
+        let record = project.script_assistance.as_mut().unwrap().records.iter_mut().find(|r| r.id == "pending-example").unwrap();
+        record.evidence.engine = "script-text-comparison-v1".into();
+        record.evidence.model = "not-used".into();
+        record.evidence.policy = "text-only-review-v1".into();
+        record.evidence.unprompted.clear();
+        record.evidence.windows = None;
+        crate::project::save(&project, &bundle).await.unwrap();
+        let loaded = crate::project::load(&bundle).await.unwrap();
+        assert_eq!(serde_json::to_value(&loaded).unwrap(), serde_json::to_value(&project).unwrap());
+        let _ = tokio::fs::remove_dir_all(bundle).await;
+    }
+
+    #[tokio::test]
     async fn save_reopen_and_snapshot_preserve_scripts_authorship_and_history() {
         let bundle =
             std::env::temp_dir().join(format!("script-roundtrip-{}.scribe", uuid::Uuid::new_v4()));

@@ -95,7 +95,8 @@ describe("durable script review actions", () => {
       contextAfter: "",
     };
     clean.scriptAssistance!.records = [cleanRecord];
-    const result = bulkScriptPunctuation(clean);
+    expect(bulkScriptPunctuation(clean, new Set())).toEqual({ project: clean, count: 0 });
+    const result = bulkScriptPunctuation(clean, new Set([cleanRecord.id]));
     expect(result.count).toBe(1);
     expect(projectTranscript(result.project)[0]!.text).toContain("SERVER.");
     expect(projectTranscript(result.project)[0]!.runs.map((r) => r.anchorIds)).toEqual(

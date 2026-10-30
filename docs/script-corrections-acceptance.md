@@ -29,3 +29,12 @@ provider. In-app analysis uses the existing local Whisper binary
 without a script prompt and retains bounded evidence with model hash/provider
 identity. Independent recognition is review evidence; it alone never authorizes
 an automatic edit.
+
+Workflow revision `4.8.0-dev.3` adds native-menu command/history tests, optional script
+opening, text-only suggestion generation without native calls, and inline review
+for both scripts and fillers. Tests cover exact preview/commit reuse, restored
+Undo → Keep actionability, transcript scroll, caption invariants, stale estimate
+rejection and preservation of independently recognized evidence. These supersede
+the prior panel/refresh interactions. Native shortcut/focus behavior, perceived
+latency and audible joins still require the updated human walkthrough. Text-only
+proposals do not count as evaluated automatic corrections for SC-04/05/14/16.

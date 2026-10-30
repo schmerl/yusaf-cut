@@ -1,3 +1,5 @@
+import { webcrypto } from "node:crypto";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -9,9 +11,10 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 
+vi.mock("@tauri-apps/plugin-fs", () => ({ readFile: vi.fn(), writeTextFile: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@/lib/ipc", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/ipc")>(),
+  ...(await importOriginal<typeof import("@/lib/ipc")>()),
   importMedia: vi.fn(),
   loadProject: vi.fn(),
   saveProject: vi.fn(),
@@ -23,8 +26,14 @@ vi.mock("@/components/Toolbox/SnapshotsDialog", () => ({ SnapshotsDialog: () => 
 const bundle = "/tmp/Teaching/05.1-http-semantics.scribe";
 const jsonPath = `${bundle}/project.json`;
 const media = {
-  id: "m1", path: "/tmp/lecture.mp4", duration: 60, fps: 30,
-  width: 1920, height: 1080, audioSampleRate: 48000, sha256: "media-hash",
+  id: "m1",
+  path: "/tmp/lecture.mp4",
+  duration: 60,
+  fps: 30,
+  width: 1920,
+  height: 1080,
+  audioSampleRate: 48000,
+  sha256: "media-hash",
 };
 
 function savedProject() {
@@ -39,6 +48,7 @@ function savedProject() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("crypto", webcrypto);
   localStorage.clear();
   useProjectStore.setState({ project: newProject("Current"), filePath: null, dirty: false });
   useProjectStore.getState().setPauseTokens([]);
@@ -46,7 +56,10 @@ beforeEach(() => {
   useUIStore.setState({ toasts: [], mediaLoading: false });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("reopening saved projects", () => {
   it.each([bundle, jsonPath, `${bundle}/`])("recognizes %s as a project", (path) => {
@@ -68,6 +81,7 @@ describe("reopening saved projects", () => {
     render(<Toolbar />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open saved project…" }));
     await waitFor(() => expect(useProjectStore.getState().filePath).toBe(bundle));
 
     expect(loadProject).toHaveBeenCalledWith(jsonPath);
@@ -100,12 +114,47 @@ describe("reopening saved projects", () => {
     render(<Toolbar />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose video or audio…" }));
+    await screen.findByRole("button", { name: "lecture.mp4" });
+    fireEvent.click(screen.getByRole("button", { name: "Start editing" }));
 
     await waitFor(() => expect(importMedia).toHaveBeenCalledWith(media.path));
     expect(loadProject).not.toHaveBeenCalled();
     expect(useProjectStore.getState().filePath).toBeNull();
   });
 
+  it("opens a recording and optional stored script as one new project without requiring a transcript", async () => {
+    vi.mocked(openDialog).mockResolvedValueOnce(media.path).mockResolvedValueOnce("/tmp/script.md");
+    vi.mocked(importMedia).mockResolvedValue(media);
+    vi.mocked(readFile).mockResolvedValue(new TextEncoder().encode("# Title\n\nWelcome back."));
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose video or audio…" }));
+    await screen.findByRole("button", { name: "lecture.mp4" });
+    fireEvent.click(screen.getByRole("button", { name: "Add script (optional)…" }));
+    await screen.findByRole("button", { name: "script.md" });
+    fireEvent.click(screen.getByRole("button", { name: "Start editing" }));
+    await waitFor(() => expect(useProjectStore.getState().project.scriptAssistance).toBeDefined());
+    const project = useProjectStore.getState().project;
+    expect(project.scriptAssistance!.scripts[0]!.markdown).toBe("# Title\n\nWelcome back.");
+    expect(Object.values(project.media)[0]!.path).toBe(media.path);
+    expect(useProjectStore.getState().filePath).toBeNull();
+  });
+  it("validates the optional script before importing media and preserves the current project on failure", async () => {
+    const before = useProjectStore.getState().project;
+    vi.mocked(openDialog).mockResolvedValueOnce(media.path).mockResolvedValueOnce("/tmp/script.md");
+    vi.mocked(readFile).mockResolvedValue(new Uint8Array([0xff]));
+    render(<Toolbar />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose video or audio…" }));
+    await screen.findByRole("button", { name: "lecture.mp4" });
+    fireEvent.click(screen.getByRole("button", { name: "Add script (optional)…" }));
+    await screen.findByRole("button", { name: "script.md" });
+    fireEvent.click(screen.getByRole("button", { name: "Start editing" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/UTF-8/);
+    expect(importMedia).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().project).toBe(before);
+  });
   it("leaves the current project intact when opening fails", async () => {
     const previous = useProjectStore.getState().project;
     vi.mocked(loadProject).mockRejectedValue(new Error("Invalid project"));

@@ -1,3 +1,4 @@
+import { dispatchCommand } from "@/lib/appCommands";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { Editor } from "@tiptap/core";
@@ -58,7 +59,7 @@ it("highlights phrases across timing groups and clears decorations on closing se
 it("restores only the inspected groups, supports paragraph hidden-word recovery and one-step undo", () => {
   render(<TranscriptEditor />);
   act(() => editor().commands.setTextSelection({ from: 3, to: 5 }));
-  fireEvent.click(screen.getByRole("button", { name: "View original selection" }));
+  act(() => dispatchCommand("original"));
   expect(screen.getByText("item potency")).toBeTruthy();
   expect(screen.getByText(/Includes the whole corrected timing group/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Restore original text" }));
@@ -66,7 +67,7 @@ it("restores only the inspected groups, supports paragraph hidden-word recovery 
   fireEvent.click(screen.getByRole("button", { name: "Undo" }));
   expect(text()).toBe("idempotency are not the serveur.");
   act(() => editor().commands.setTextSelection(1));
-  fireEvent.click(screen.getByRole("button", { name: "View paragraph original" }));
+  act(() => dispatchCommand("original"));
   fireEvent.click(screen.getByRole("button", { name: "Restore original text" }));
   expect(text()).toBe("item potency aren’t the old server.");
   expect(totalDuration(useProjectStore.getState().project)).toBe(6);
@@ -74,7 +75,7 @@ it("restores only the inspected groups, supports paragraph hidden-word recovery 
 
 it("invalidates inspected ranges after editing or switching projects", () => {
   render(<TranscriptEditor />);
-  fireEvent.click(screen.getByRole("button", { name: "View paragraph original" }));
+  act(() => dispatchCommand("original"));
   act(() => editor().view.dispatch(editor().state.tr.insertText("NEW ", 1)));
   expect(screen.queryByRole("button", { name: "Restore original text" })).toBeNull();
   expect(screen.getByText(/transcript changed/)).toBeTruthy();

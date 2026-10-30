@@ -5,16 +5,12 @@ import { Button } from "@/components/ui/button";
 import { endTypingGroup, projectSession, useProjectStore } from "@/stores/projectStore";
 import { prepareScript, replaceStoredScript } from "@/lib/scriptAssistance";
 import { MAX_SCRIPT_BYTES, parseScript } from "@/lib/scriptMarkdown";
-import type { TextRange } from "@/lib/transcriptEdits";
-import { ScriptReconciliationPanel } from "./ScriptReconciliationPanel";
 
 export function ScriptPanel({
   onClose,
-  selection = [],
   isComposing,
 }: {
   onClose: () => void;
-  selection?: TextRange[];
   isComposing?: () => boolean;
 }) {
   const project = useProjectStore((state) => state.project);
@@ -84,7 +80,7 @@ export function ScriptPanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={busy || !project.segments.some((s) => s.words.length)}
+          disabled={busy || !project.segments.length}
           onClick={() => void importScript()}
         >
           {busy ? "Importing script…" : script ? "Replace script" : "Import Markdown"}
@@ -130,11 +126,25 @@ export function ScriptPanel({
               ))}
             </div>
           </details>
-          <ScriptReconciliationPanel
-            key={script.revision}
-            selection={selection}
-            isComposing={isComposing}
-          />
+          <details className="mt-2">
+            <summary>Review history</summary>
+            {(project.scriptAssistance?.records ?? [])
+              .filter(
+                (r) =>
+                  r.historicalReason || !["suggested", "off-script", "applied"].includes(r.status),
+              )
+              .map((r) => (
+                <div key={r.id} className="my-2 border-t border-border pt-2">
+                  <p>
+                    {r.beforeText} → {r.afterText}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {r.status}
+                    {r.historicalReason ? ` · ${r.historicalReason}` : ""}
+                  </p>
+                </div>
+              ))}
+          </details>
         </>
       ) : (
         <p className="text-muted-foreground">

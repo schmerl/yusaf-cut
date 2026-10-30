@@ -245,12 +245,12 @@ it never downloads models or updates raw recognition caches. Progress and
 cancellation are request-scoped. Model/provider identity and actual analysis
 windows are retained with evidence.
 
-The Script panel shows separate pending, applied and off-script review states.
+Inline review shows pending, applied and off-script states beside transcript highlights.
 `scriptReviewActions.ts` uses existing validated text transactions and explicit
 cuts. Simple punctuation/case changes retain existing timing groups. Off-script
 preview and commit share one immutable proposal and the general bounded timeline
-audition machinery, without filler-token policy. Stale card/preview guards
-prevent applying a decision to a different live item. Editor decorations are
+audition machinery, without filler-token policy. Current occurrence mapping guards
+prevent applying a decision to a different live item; obsolete previews are discarded. Editor decorations are
 separate from caption text.
 
 `scriptLifecycle.ts` reconciles review references during ordinary store updates,
@@ -265,3 +265,39 @@ Automatic wording application is **not enabled** in this prototype. The separate
 experimental C++ contrastive scorer is development tooling, not the app provider
 or a calibrated confidence rule. See the native checkpoint/acceptance audit
 before treating any part of this work as release acceptance.
+
+## Inline review and native commands (4.8.0-dev.3)
+
+`useNativeMenu` installs Tauri menus using the existing core menu capability.
+Native menu items and toolbar controls share `appCommands` events. Project
+Undo/Redo use the temporal project store; ordinary input fields retain native text
+undo, and unfinished transcript composition blocks project history actions.
+Menu enabled states subscribe to project/history changes. No OS-wide shortcut or
+additional permission is installed.
+
+`OpenDialog` accepts a recording and optional Markdown script, or opens an existing
+project. Script decoding/validation precedes media import; project/session guards
+prevent late setup from replacing a different project. `File → Add / Replace Script`
+opens stored preview/history in a dialog. Script storage does not require existing
+transcribed words.
+
+`InlineReview` projects surviving script records and filler candidates into one
+output-ordered queue. Selected runs scope navigation to that passage; other pending
+records persist. Transcript decorations open a nonmodal popover beside the phrase;
+keyboard navigation and native Review commands use the same queue. Advanced filler
+settings remain in an on-demand dialog, rather than a permanent side panel.
+
+Text-only `runScriptReconciliation` bypasses the native recognizer and creates
+pending records with engine `script-text-comparison-v1`, no claimed unprompted audio,
+and no acoustic windows. It never applies wording automatically and never replaces
+valid independent evidence with text-only evidence. Explicit Check audio retains
+the bounded, staged native provider. Text-only results still use project/session,
+script revision and IME guards and commit in one transaction.
+
+Decisions rebuild against current anchor/text mappings. A project change discards
+cut previews; an Undo-restored occurrence can be reviewed immediately without a
+blanket refresh gate. Preview and commit share one proposal while the project is
+unchanged. Boundary estimates capture candidate, project, session and request
+identity. Transcript document synchronization restores scroll and chooses the
+nearest surviving paragraph when a cut removes the caret's block; a new session
+starts at the top. These mechanisms do not change original recognition or captions.

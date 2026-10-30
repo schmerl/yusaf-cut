@@ -474,7 +474,7 @@ to delete the word.
 
 - Use one matching policy for transcript highlighting, review candidates, and counts. Highlight vocal fillers by default, including bracketed recognition such as `[AH]`, `[UM]`, and `[UH]`, with case/punctuation normalization for matching while preserving the displayed spelling.
 - Offer selectable built-in terms and custom literal words/phrases. Ordinary words such as “like” and discourse phrases require explicit opt-in. Prefer longer overlapping phrase matches rather than duplicate candidates. Store detection choices in the project.
-- **Review fillers** opens a panel alongside the transcript, accessible from the transcript toolbar, Toolbox, and Search. Show the current occurrence, neighboring transcript context, source/output times, and queue position in playback order. Highlight the active occurrence in the editor.
+- **Review fillers** uses transcript highlights and an inline popover, accessible from the native Review menu and Toolbox. Compact category/previous/next navigation follows playback order. Playback and cut decisions stay beside the current phrase; detailed context, timing adjustments and detection settings are available on demand in a dialog.
 - Include fillers hidden by text-only corrections when their audio survives; label them **Text removed, audio retained**. Provide **Unreviewed**, **Kept**, **Audio retained**, and **All** filters. Resolved text-only decisions leave the default unresolved queue.
 - Keep decisions occurrence-specific, including repeated placements of the same media. Reconcile candidate identity after edits, splits, undo/redo, recognition replacement, and reload; stale candidates must not affect another source interval.
 
@@ -644,3 +644,18 @@ Then start on **Phase 0** above.
 ---
 
 **End of spec.** Ship it.
+
+### Development workflow update — inline script and filler review
+
+Opening can combine a recording with an optional Markdown script; later script
+changes live under File → Add / Replace Script. Native macOS File/Edit/Review/Window
+menus invoke the same application actions as visible controls, including project
+Undo/Redo. Script differences and fillers are reviewed by clicking transcript
+highlights, with Play and Accept/Dismiss or Preview cut/Cut/Keep in a contextual
+popover. A compact toolbar provides category and previous/next navigation; selected
+runs scope the queue to their passage without deleting other pending decisions.
+Text suggestions are available without a second transcription. Optional audio
+checking remains explicit and local; text-only similarity does not authorize
+automatic wording changes. Detailed evidence, script source/history and filler
+settings are on demand. Undo restores review actionability and cuts preserve
+transcript position. Automatic wording eligibility/application remains unfinished.

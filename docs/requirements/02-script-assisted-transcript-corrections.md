@@ -16,6 +16,21 @@ using the script and recorded audio to correct recognition mistakes,
 capitalization, and punctuation more easily. Build on the existing
 [manual transcript correction feature](03-transcript-corrections.md).
 
+## Workflow revision from native review
+
+On 2026-10-30 the user approved recording-plus-optional-script opening, native
+macOS menu integration, and inline review popovers shared with filler review.
+Text-based suggestions must appear without waiting for another recognition pass;
+optional audio checking and eventual automatic wording eligibility remain distinct.
+Use File for stored script management and a compact review navigation toolbar.
+Clicking a marked phrase offers replacement or cut decisions. Preserve transcript
+position on cuts and allow Undo → Keep without a refresh ceremony. A selected run
+scopes review navigation; unrelated pending items persist at their own locations.
+Details and advanced filler settings belong on demand. These workflow revisions
+supersede panel-based prototype controls and the requirement to finish audio
+analysis before displaying review-only proposals. Audio-supported automatic edits
+still require the original evaluation and atomicity criteria below.
+
 ## Confirmed decisions
 
 | Area | Requirement |

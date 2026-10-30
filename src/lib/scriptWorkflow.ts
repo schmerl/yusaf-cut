@@ -70,6 +70,7 @@ export async function runScriptReconciliation(
   model: WhisperModel,
   progress: (completed: number, total: number) => void,
   isComposing?: () => boolean,
+  checkAudio = true,
 ) {
   const expected = useProjectStore.getState().project,
     session = projectSession();
@@ -110,35 +111,42 @@ export async function runScriptReconciliation(
     current();
     const windows = scriptAudioWindows(expected, candidates);
     if (!windows.length) return { applied: 0, pending: 0, offScript: 0, unsupported: 0 };
-    unlisten = await onScriptProgress((event) => {
+    let audio: Awaited<ReturnType<typeof analyzeScriptAudio>> = {
+      engine: "script-text-comparison-v1",
+      model: "not-used",
+      windows: [],
+    };
+    if (checkAudio) {
+      unlisten = await onScriptProgress((event) => {
+        if (
+          event.requestId === run.id &&
+          !run.cancelled &&
+          !invalidated &&
+          projectSession() === session &&
+          useProjectStore.getState().project === expected
+        )
+          progress(event.completed, event.total);
+      });
+      current();
+      progress(0, windows.length);
+      run.started = true;
+      audio = await analyzeScriptAudio(expected, windows, run.id, model);
+      run.started = false;
+      current();
       if (
-        event.requestId === run.id &&
-        !run.cancelled &&
-        !invalidated &&
-        projectSession() === session &&
-        useProjectStore.getState().project === expected
+        audio.windows.length !== windows.length ||
+        audio.windows.some(
+          (window, index) =>
+            window.segmentId !== windows[index]!.segmentId ||
+            window.sourceIn !== windows[index]!.sourceIn ||
+            window.sourceOut !== windows[index]!.sourceOut ||
+            typeof window.text !== "string",
+        )
       )
-        progress(event.completed, event.total);
-    });
-    current();
-    progress(0, windows.length);
-    run.started = true;
-    const audio = await analyzeScriptAudio(expected, windows, run.id, model);
-    run.started = false;
-    current();
-    if (
-      audio.windows.length !== windows.length ||
-      audio.windows.some(
-        (window, index) =>
-          window.segmentId !== windows[index]!.segmentId ||
-          window.sourceIn !== windows[index]!.sourceIn ||
-          window.sourceOut !== windows[index]!.sourceOut ||
-          typeof window.text !== "string",
-      )
-    )
-      throw new Error(
-        "Audio evidence did not match the requested scope. No changes were committed.",
-      );
+        throw new Error(
+          "Audio evidence did not match the requested scope. No changes were committed.",
+        );
+    }
     const blocks = projectTranscript(expected);
     const records: ScriptReviewRecord[] = [];
     const existing = new Set(expected.scriptAssistance!.records.map((r) => r.id));
@@ -169,8 +177,8 @@ export async function runScriptReconciliation(
       if (
         last &&
         !last.historicalReason &&
-        last.evidence.engine === audio.engine &&
-        last.evidence.model === audio.model &&
+        (!checkAudio ||
+          (last.evidence.engine === audio.engine && last.evidence.model === audio.model)) &&
         last.policy === SCRIPT_MATCH_POLICY
       )
         continue;
@@ -236,16 +244,20 @@ export async function runScriptReconciliation(
         evidence: {
           engine: audio.engine,
           model: audio.model,
-          policy: "independent-audio-review-v1",
+          policy: checkAudio ? "independent-audio-review-v1" : "text-only-review-v1",
           unprompted,
-          windows: audio.windows
-            .filter(
-              (window) =>
-                window.segmentId === candidate.segmentId &&
-                window.sourceIn < candidate.sourceOut &&
-                window.sourceOut > candidate.sourceIn,
-            )
-            .map(({ sourceIn, sourceOut, text }) => ({ sourceIn, sourceOut, text })),
+          ...(checkAudio
+            ? {
+                windows: audio.windows
+                  .filter(
+                    (window) =>
+                      window.segmentId === candidate.segmentId &&
+                      window.sourceIn < candidate.sourceOut &&
+                      window.sourceOut > candidate.sourceIn,
+                  )
+                  .map(({ sourceIn, sourceOut, text }) => ({ sourceIn, sourceOut, text })),
+              }
+            : {}),
         },
         ...(candidate.actionable ? {} : { historicalReason: candidate.reason }),
       });

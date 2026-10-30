@@ -108,9 +108,16 @@ export function scriptReviewAction(
 }
 
 /** One batch, one commit. Validate every eligible precondition before editing. */
-export function bulkScriptPunctuation(project: Project): { project: Project; count: number } {
+export function bulkScriptPunctuation(
+  project: Project,
+  recordIds?: ReadonlySet<string>,
+): { project: Project; count: number } {
   const targets = (project.scriptAssistance?.records ?? []).filter(
-    (r) => r.status === "suggested" && r.kind === "punctuation" && !r.historicalReason,
+    (r) =>
+      (!recordIds || recordIds.has(r.id)) &&
+      r.status === "suggested" &&
+      r.kind === "punctuation" &&
+      !r.historicalReason,
   );
   const eligible = targets.flatMap((record) => {
     const location = locateScriptRecord(project, record);

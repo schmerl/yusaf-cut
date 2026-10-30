@@ -1,5 +1,7 @@
 # Manual checkpoint: transcript corrections, Phases 2–7
 
+**Current development workflow:** start with the [inline review checkpoint](script-corrections-checkpoint.md). The walkthrough below records the earlier controls. Original-text inspection now lives in the native Edit menu, and detailed filler controls are under Options → Filler settings.
+
 Use the rebuilt **4.7.0** app for the final walkthrough at
 `src-tauri/target/release/bundle/macos/YusafCut.app`.
 Save any work and quit the previous app before opening this one; the installed

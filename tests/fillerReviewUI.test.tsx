@@ -34,7 +34,7 @@ function setup(text = "Hello [UM], [UH] like world.") {
       <TranscriptEditor />
     </>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Review fillers" }));
+  fireEvent.click(screen.getByText("Filler settings…"));
   return {
     ...result,
     project,
@@ -71,8 +71,8 @@ function filter(name: string) {
 describe("filler review workflow", () => {
   it("highlights bracketed vocals by default and opens without dirty state, history, or playback", () => {
     const { project, panel } = setup();
-    const highlighted = screen
-      .getByRole("textbox", { name: "Editable transcript" })
+    const highlighted = document
+      .querySelector('[aria-label="Editable transcript"]')!
       .querySelectorAll(".is-filler");
     expect(Array.from(highlighted, (el) => el.textContent)).toEqual(["[UM]", "[UH]"]);
     expect(panel().getByText("1 of 2")).toBeInTheDocument();
@@ -289,14 +289,14 @@ describe("filler review workflow", () => {
     expect(panel().getByText("[UM]")).toBeInTheDocument();
     fireEvent.click(panel().getByRole("button", { name: "Skip" }));
     fireEvent.click(panel().getByRole("button", { name: "Close review" }));
-    fireEvent.click(screen.getByRole("button", { name: "Review fillers" }));
+    fireEvent.click(screen.getByText("Filler settings…"));
     expect(panel().getByText("1 of 2")).toBeInTheDocument();
     expect(useProjectStore.getState().dirty).toBe(false);
   });
   it("removes text only, keeps duration, stays pinned and exposes Audio retained with undo", () => {
     const { panel, project } = setup();
     fireEvent.click(panel().getByRole("button", { name: "Remove text only" }));
-    expect(screen.getByRole("textbox", { name: "Editable transcript" })).not.toHaveTextContent(
+    expect(document.querySelector('[aria-label="Editable transcript"]')!).not.toHaveTextContent(
       "UM",
     );
     expect(totalDuration(useProjectStore.getState().project)).toBe(totalDuration(project));
@@ -304,7 +304,9 @@ describe("filler review workflow", () => {
     expect(panel().getByText("Text removed, audio retained")).toBeInTheDocument();
     expect(panel().getByRole("button", { name: "Remove text only" })).toBeDisabled();
     fireEvent.click(panel().getByRole("button", { name: "Undo this decision" }));
-    expect(screen.getByRole("textbox", { name: "Editable transcript" })).toHaveTextContent("[UM],");
+    expect(document.querySelector('[aria-label="Editable transcript"]')!).toHaveTextContent(
+      "[UM],",
+    );
     fireEvent.click(panel().getByRole("button", { name: "Remove text only" }));
     filter("Audio retained");
     expect(panel().getByText("1 of 1")).toBeInTheDocument();
@@ -431,7 +433,7 @@ describe("filler review workflow", () => {
       custom: ["world"],
     });
     expect(
-      screen.getByRole("textbox", { name: "Editable transcript" }).querySelectorAll(".is-filler"),
+      document.querySelector('[aria-label="Editable transcript"]')!.querySelectorAll(".is-filler"),
     ).toHaveLength(4);
   });
 });
