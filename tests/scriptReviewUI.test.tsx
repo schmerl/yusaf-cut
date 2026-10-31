@@ -64,6 +64,43 @@ describe("inline transcript review", () => {
       ]);
     },
   );
+  it("offers editable wording and an explanation when no replacement was inferred", () => {
+    const p = structuredClone(fixture) as Project;
+    const record = p.scriptAssistance!.records.find((r) => r.id === "pending-example")!;
+    record.afterText = record.beforeText;
+    record.kind = "uncertain";
+    replaceProjectBaseline(p);
+    open();
+    const popover = marker(".is-script-pending");
+    expect(popover.getByText("Needs review")).toBeTruthy();
+    expect(popover.queryByRole("button", { name: "Accept" })).toBeNull();
+    expect(popover.getByText(/No replacement was inferred/)).toBeTruthy();
+    fireEvent.click(popover.getByText("Edit text"));
+    fireEvent.change(popover.getByRole("textbox", { name: "Your replacement" }), {
+      target: { value: "service." },
+    });
+    fireEvent.click(popover.getByRole("button", { name: "Save text" }));
+    expect(projectTranscript(useProjectStore.getState().project)[0]!.text).toContain("service.");
+  });
+  it("adjusts off-script cut buffers in the popover and shares the adjusted preview with commit", () => {
+    open();
+    const popover = marker(".is-script-off-script");
+    fireEvent.click(popover.getByText("Adjust cut"));
+    fireEvent.change(popover.getByRole("spinbutton", { name: "Cut buffer before" }), {
+      target: { value: "100" },
+    });
+    fireEvent.click(popover.getByRole("button", { name: "Preview cut" }));
+    const preview = useFillerAuditionStore.getState().request!.timeline;
+    expect(popover.getByLabelText("Proposed cut duration")).toHaveTextContent("0.400 seconds");
+    expect(popover.getByLabelText("Retained following text")).toHaveTextContent("serveur.");
+    fireEvent.click(popover.getByRole("button", { name: "Cut speech" }));
+    expect(useProjectStore.getState().project).toBe(preview);
+    expect(
+      projectTranscript(preview)
+        .map((b) => b.text)
+        .join(" "),
+    ).toContain("serveur.");
+  });
   it("keeps a saved passage through metadata changes but clears it for a new project session", () => {
     open();
     const dom = screen.getByRole("textbox", { name: "Editable transcript" }) as HTMLElement & {

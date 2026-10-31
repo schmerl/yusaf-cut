@@ -36,6 +36,53 @@ async function fixture(text: string, script: string, repeated = false): Promise<
   return replaceStoredScript(p, await prepareScript(script, "synthetic.md"));
 }
 describe("pure script matching and scope", () => {
+  it("leaves vocal fillers to filler review instead of proposing a scripted cue", async () => {
+    const p = await fixture(
+      "[UH] We need a precise way to describe this example.",
+      "[now] We need a precise way to describe this example.",
+    );
+    expect(
+      scriptCandidates(p).filter(
+        (c) => c.beforeText.includes("[UH]") && c.afterText !== c.beforeText,
+      ),
+    ).toEqual([]);
+  });
+  it.each([
+    [
+      "We use version three point one for this detailed example.",
+      "We use version 3.1 for this detailed example.",
+      "three point one",
+      "3.1",
+    ],
+    [
+      "The service returns two OH two accepted for this request.",
+      "The service returns 202 accepted for this request.",
+      "two OH two",
+      "202",
+    ],
+    [
+      "The service returns two O two accepted for this request.",
+      "The service returns 202 accepted for this request.",
+      "two O two",
+      "202",
+    ],
+  ])("proposes exact numeric notation: %s", async (spoken, written, beforeText, afterText) => {
+    const p = await fixture(spoken, written);
+    expect(scriptCandidates(p)).toContainEqual(
+      expect.objectContaining({ beforeText, afterText, kind: "notation" }),
+    );
+  });
+  it("never supplies a different number or truncates a longer spoken version", async () => {
+    for (const spoken of [
+      "We use version three point two for this detailed example.",
+      "We use version three point one point two for this detailed example.",
+    ]) {
+      const p = await fixture(spoken, "We use version 3.1 for this detailed example.");
+      expect(scriptCandidates(p).some((c) => c.kind === "notation" && c.afterText === "3.1")).toBe(
+        false,
+      );
+    }
+  });
   it("isolates a spoken name alias without removing an adjacent aside or filler", async () => {
     const p = await fixture(
       "We will follow hail me in this [UH] class from a message to a contract.",

@@ -1,3 +1,5 @@
+import { locateScriptRecord } from "./scriptLifecycle";
+import { isVocalFillerOnly } from "./scriptMatching";
 import { projectSession, useProjectStore } from "@/stores/projectStore";
 import type { Project } from "./edl";
 import type { TextRange } from "./transcriptEdits";
@@ -110,13 +112,12 @@ export async function runScriptReconciliation(
     }
     current();
     const windows = scriptAudioWindows(expected, candidates);
-    if (!windows.length) return { applied: 0, pending: 0, offScript: 0, unsupported: 0 };
     let audio: Awaited<ReturnType<typeof analyzeScriptAudio>> = {
       engine: "script-text-comparison-v1",
       model: "not-used",
       windows: [],
     };
-    if (checkAudio) {
+    if (checkAudio && windows.length) {
       unlisten = await onScriptProgress((event) => {
         if (
           event.requestId === run.id &&
@@ -151,6 +152,23 @@ export async function runScriptReconciliation(
     const records: ScriptReviewRecord[] = [];
     const existing = new Set(expected.scriptAssistance!.records.map((r) => r.id));
     const superseded = new Set<string>();
+    for (const record of expected.scriptAssistance!.records) {
+      if (record.historicalReason || !["suggested", "off-script"].includes(record.status)) continue;
+      const location = locateScriptRecord(expected, record, blocks);
+      if (
+        location &&
+        (!scope ||
+          scope.some(
+            (r) =>
+              r.segmentId === location.block.segmentId &&
+              r.blockId === location.block.id &&
+              r.from < location.to &&
+              r.to > location.from,
+          )) &&
+        (record.policy !== SCRIPT_MATCH_POLICY || isVocalFillerOnly(record.beforeText))
+      )
+        superseded.add(record.id);
+    }
     for (const candidate of candidates) {
       const block = blocks.find(
         (b) => b.segmentId === candidate.segmentId && b.id === candidate.blockId,
@@ -265,7 +283,7 @@ export async function runScriptReconciliation(
     current();
     if (isComposing?.())
       throw new Error("Finish typing and run reconciliation again. No changes were committed.");
-    if (records.length)
+    if (records.length || superseded.size)
       useProjectStore.getState().commitTranscript(
         {
           ...expected,

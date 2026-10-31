@@ -1,10 +1,50 @@
 # Script corrections: inline workflow checkpoint
 
-Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.4`.
+Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.5`.
 The earlier walkthrough found slow audio analysis, excessive panels, missing native
 Undo/Redo, lost transcript position after cutting, and an Undo → Keep error. This
 checkpoint addresses that workflow. **The complete automatic correction feature
 is still unfinished; automatic wording changes remain disabled.**
+
+## Focused review of the reported issues — start here
+
+The updated build addresses fillers shown as wording replacements, unclear cards
+with no proposed change, missing spoken-number notation, cut boundaries/buffers,
+and entering your own replacement. Allow about five minutes; no listening-label
+work or original parser review needs repeating.
+
+1. Quit the old app and launch the debug app using the command below. A fresh
+   disposable copy with the script already attached is ready at
+   `/private/tmp/yusafcut-script-study/review-fixes-1.scribe` (Open → Open saved
+   project; ⌘⇧G in the chooser). This restores the original example words without
+   overwriting your earlier review copies or source project. You can use the existing
+   workflow-review copy if the example words have not already been edited/cut.
+2. Click **Find differences** once to regenerate the pending comparisons with the
+   updated matching policy. Older pending results in this scope move to history;
+   explicit Accept/Keep/Dismiss decisions and edited text remain preserved.
+3. Around source 04:03, click the amber `[UH]`. Expect the **Filler** popover with
+   Play/Preview cut/Cut/Keep, without a `[UH] → [now]` wording replacement.
+4. Find `operation or`. An uncertain match is labeled **Needs review** and explains
+   that no replacement was inferred. It has no disabled Accept button. Open **Edit
+   text**, enter your own wording and **Save text**. Only transcript/captions change;
+   one Undo reverses that edit. The same Edit text control is available on other
+   correction/off-script/filler popovers.
+5. Find `three point one` in the sentence about JSON schema. Expect a `3.1` notation
+   proposal. Likewise `two O two` / `two OH two` can propose `202` in a matched script
+   context. Different numeric values must never be substituted. An isolated or
+   ambiguous version phrase may still need your own wording; that is shown as
+   Needs review instead of a replacement that appears to do nothing.
+6. Click the off-script `a` in that schema sentence. The popup should explicitly
+   say it keeps the following `JSON schema for that purpose.` text. **Preview cut**
+   defaults to its exact recognized span (80 ms in the original study), rather than
+   legacy paragraph/word padding. **Adjust cut** now offers **Buffer before/after**
+   in milliseconds. A 20 ms buffer before should add 20 ms to the cut; a buffer that
+   enters the following word must be rejected. Preview and commit must agree.
+7. Cut with zero buffers. Only the selected word's audio and text should disappear.
+   The following words remain in the next transcript block: an audio cut splits the
+   segment/paragraph display. Inspect that retained text and listen to the join,
+   then Undo → Keep. Confirm the duration change matches the preview and text after
+   the selected word remains in captions. Audibility still needs your review.
 
 ## What changed
 
@@ -120,7 +160,7 @@ See the [acceptance audit](script-corrections-acceptance.md) and
 text-only suggestions without recognizer calls, retained audio evidence, optional
 script opening, native menu command/history wiring, inline review/captions,
 preview/commit identity, scroll preservation, Undo → Keep, and stale audio estimates.
-Validation: typechecking/lint, 308 frontend tests and 66 Rust tests pass, and the
+Validation: typechecking/lint, 319 frontend tests and 66 Rust tests pass, and the
 debug macOS app builds. Native UI automation was not approved for YusafCut, so its
 running menus, focus behavior and audible joins were not inspected automatically.
 Original study project hashes still match; private recordings/scripts/labels remain

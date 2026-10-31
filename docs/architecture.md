@@ -312,3 +312,25 @@ sessions clear it. Fresh caret/selection interaction replaces the snapshot.
 Missing-script review commands open script management explicitly. Suggestion
 markers expose the exact before/replacement context in their tooltip and accessible
 name; users can run whole-transcript comparison and click Jason directly.
+
+### Matching and cut refinements (4.8.0-dev.5)
+
+Matching policy `script-match-v2` excludes vocal filler-only proposals and never
+replaces a divergent span containing vocal fillers with scripted wording. Inline
+review also filters legacy filler-only script records. Explicit comparisons archive
+older active policy results only in the analyzed scope, preserving resolved
+choices. Matched numeric notation requires identical digit/decimal value, with
+O/Oh treated as zero in spoken digit sequences; partial prefixes of longer numbers
+are rejected. Ambiguous/no-replacement results remain explicit Needs review items.
+
+Custom text uses the current validated occurrence, keeps source anchors unchanged,
+and records an explicit user decision/provenance in the same Undo transaction.
+No-replacement cards offer editing/dismissal rather than a disabled Accept action.
+
+Off-script review builds precise source fragments around the selected anchor span;
+it no longer passes those cuts through legacy deleteWords padding. Nonnegative
+before/after buffers may extend into silence but cannot cross existing edits or
+neighboring/hidden speech. The normalized transcript is reconciled independently
+for both retained fragments and metadata. Segment splitting may display the retained
+tail as a new paragraph; its words, captions and source audio remain present. Popup
+context and preview duration make the intended removal visible before committing.

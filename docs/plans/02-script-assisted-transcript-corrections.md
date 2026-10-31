@@ -26,6 +26,13 @@ Cut synchronization preserves transcript scroll. Detailed source/evidence/settin
 are on demand. See the current checkpoint for the replacement human script. Full
 automatic application/evaluation work remains outstanding after workflow acceptance.
 
+Reported native issues are addressed in `4.8.0-dev.5`: filler-only script
+substitutions are suppressed, exact-value numeric notation is proposed, uncertain
+cards explain the absence of a replacement, popovers accept custom wording, and
+off-script cuts use precise anchor bounds plus optional silence buffers. Following
+text remains present across segment splits. See the focused walkthrough before
+continuing automatic eligibility/evaluation work.
+
 ## Outcome and delivery order
 
 Import a Markdown teleprompter script, reconcile the whole edited transcript or

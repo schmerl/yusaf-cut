@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Development
+- Keep vocal fillers out of script wording replacements, and regenerate legacy
+  pending results with the updated matching policy. Offer exact-value decimal and
+  spoken-digit notation such as three point one → 3.1 and two O/Oh two → 202.
+- Label matches without an inferred replacement as Needs review; add user-entered
+  text in correction/filler/off-script popovers with a separate undoable text edit.
+- Use exact source bounds for off-script cuts instead of legacy word padding.
+  Add before/after buffers, reject neighboring speech (including hidden words),
+  show proposed duration and retained following text, and preserve preview/commit.
 - Preserve transcript passage selections across toolbar/menu focus and show the
   retained range until a new caret/selection, text change or project session.
   Missing-script review actions now open setup rather than staying silently disabled.

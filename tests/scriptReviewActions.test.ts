@@ -5,6 +5,7 @@ import { computeTimeline, totalDuration } from "@/lib/edl";
 import { projectTranscript, normalizeProjectTranscripts } from "@/lib/transcript";
 import {
   scriptReviewAction,
+  replaceScriptReviewText,
   bulkScriptPunctuation,
   buildOffScriptCut,
 } from "@/lib/scriptReviewActions";
@@ -15,6 +16,53 @@ import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 const project = () => structuredClone(fixture) as Project;
 beforeEach(() => replaceProjectBaseline(project()));
 describe("durable script review actions", () => {
+  it("applies user-entered text with review provenance and one Undo without changing timing", () => {
+    const p = useProjectStore.getState().project;
+    const result = replaceScriptReviewText(p, "pending-example", "service.");
+    expect(projectTranscript(result)[0]!.text).toContain("service.");
+    expect(totalDuration(result)).toBe(totalDuration(p));
+    expect(result.scriptAssistance!.records.find((r) => r.id === "pending-example")).toMatchObject({
+      afterText: "service.",
+      status: "accepted",
+    });
+    useProjectStore.getState().commitTranscript(result, p);
+    useProjectStore.temporal.getState().undo();
+    expect(useProjectStore.getState().project).toBe(p);
+  });
+  it("cuts only the selected source span and rejects buffers entering hidden neighboring speech", () => {
+    const p = useProjectStore.getState().project;
+    const cut = buildOffScriptCut(p, "off-script-example");
+    expect(cut.cutStart).toBe(2);
+    expect(cut.cutEnd).toBe(2.3);
+    expect(totalDuration(p) - totalDuration(cut.result)).toBeCloseTo(0.3);
+    expect(
+      projectTranscript(cut.result)
+        .map((b) => b.text)
+        .join(" "),
+    ).toContain("serveur.");
+    const tiny = structuredClone(p);
+    tiny.segments[0]!.words.find((w) => w.id === "w3")!.end = 2.08;
+    tiny.segments[0]!.transcript!.originals.find((w) => w.id === "w3")!.end = 2.08;
+    tiny.scriptAssistance!.records.find((r) => r.id === "off-script-example")!.sourceOut = 2.08;
+    const shortCut = buildOffScriptCut(tiny, "off-script-example");
+    expect(totalDuration(tiny) - totalDuration(shortCut.result)).toBeCloseTo(0.08);
+    expect(shortCut.cutStart).toBe(2);
+    expect(shortCut.cutEnd).toBe(2.08);
+    expect(
+      projectTranscript(shortCut.result)
+        .map((b) => b.text)
+        .join(" "),
+    ).toContain("serveur.");
+    const buffered = buildOffScriptCut(p, "off-script-example", { beforeMs: 100, afterMs: 0 });
+    expect(buffered.cutStart).toBeCloseTo(1.9);
+    expect(buffered.cutEnd).toBe(2.3);
+    expect(() => buildOffScriptCut(p, "off-script-example", { beforeMs: 0, afterMs: 50 })).toThrow(
+      /neighboring speech/,
+    );
+    expect(() => buildOffScriptCut(p, "off-script-example", { beforeMs: -10, afterMs: 0 })).toThrow(
+      /nonnegative/,
+    );
+  });
   it("keeps an automatic change as an explicit protected decision; undo restores its marker", () => {
     const p = useProjectStore.getState().project;
     const next = scriptReviewAction(p, "automatic-example", "keep");

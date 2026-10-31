@@ -1,12 +1,41 @@
 /** Pure, conservative candidate generation. Script similarity is not audio proof. */
 import type { Project } from "./edl";
+import { VOCAL_FILLERS } from "./fillers";
 import { occurrenceLineage } from "./fillerReview";
 import { projectTranscript, type ProjectedBlock, type ProjectedRun } from "./transcript";
 import type { TextRange } from "./transcriptEdits";
 import { parseScript, type ScriptPassage } from "./scriptMarkdown";
 import type { ScriptResultKind } from "./scriptAssistance";
 
-export const SCRIPT_MATCH_POLICY = "script-match-v1";
+export const SCRIPT_MATCH_POLICY = "script-match-v2";
+export function isVocalFillerOnly(text: string): boolean {
+  const words = tokens(text);
+  return (
+    words.length > 0 &&
+    words.every((word) => (VOCAL_FILLERS as readonly string[]).includes(word.value))
+  );
+}
+function spokenNumber(text: string): string | null {
+  const digits: Record<string, string> = {
+    zero: "0",
+    o: "0",
+    oh: "0",
+    one: "1",
+    two: "2",
+    three: "3",
+    four: "4",
+    five: "5",
+    six: "6",
+    seven: "7",
+    eight: "8",
+    nine: "9",
+    point: ".",
+  };
+  const value = tokens(text)
+    .map((t) => digits[t.value] ?? (/^\d+$/u.test(t.value) ? t.value : "?"))
+    .join("");
+  return /^\d+(?:\.\d+)*$/u.test(value) ? value : null;
+}
 interface Token {
   value: string;
   from: number;
@@ -150,6 +179,14 @@ export function* scriptCandidateBatches(
     passage: ScriptPassage,
     reason: string,
   ) {
+    if (
+      (kind === "wording" || kind === "notation" || kind === "punctuation") &&
+      tokens(block.text.slice(from, to)).some((word) =>
+        (VOCAL_FILLERS as readonly string[]).includes(word.value),
+      )
+    )
+      return;
+    if (isVocalFillerOnly(block.text.slice(from, to))) return;
     if (
       to <= from ||
       (scope &&
@@ -310,6 +347,38 @@ export function* scriptCandidateBatches(
       continue;
     }
     const script = tokens(best.passage.text);
+    // Exact value equivalence only; script numbers never supply a different value.
+    for (const match of best.passage.text.matchAll(/\b\d+(?:\.\d+)*\b/gu)) {
+      if (match.index! > 0 && /[\p{L}\p{N}_.]/u.test(best.passage.text[match.index! - 1]!))
+        continue;
+      const number = match[0];
+      for (let start = 0; start < current.length; start++) {
+        for (
+          let end = start + 1;
+          end <= Math.min(current.length, start + number.length * 2 + 2);
+          end++
+        ) {
+          const spoken = block.text.slice(current[start]!.from, current[end - 1]!.to);
+          const numericWord = (word: Token | undefined) =>
+            !!word && (word.value === "point" || spokenNumber(word.value) !== null);
+          if (
+            !numericWord(current[start - 1]) &&
+            !numericWord(current[end]) &&
+            spokenNumber(spoken) === number &&
+            !/^\d+(?:\.\d+)*$/u.test(spoken)
+          )
+            add(
+              block,
+              current[start]!.from,
+              current[end - 1]!.to,
+              number,
+              "notation",
+              best.passage,
+              "The spoken digits and decimal points match this written value. Review the notation before accepting.",
+            );
+        }
+      }
+    }
     if (best.cost === 0) {
       const first = script[best.scriptStart]!,
         last = script[best.scriptEnd - 1]!;

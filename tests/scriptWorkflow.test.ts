@@ -1,3 +1,4 @@
+import scriptFixture from "./fixtures/script-assistance.json";
 import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import original from "./fixtures/transcript-corrections.json";
@@ -64,6 +65,59 @@ beforeEach(() => {
   });
 });
 describe("staged audio reconciliation", () => {
+  it("keeps unreviewed applied markers across a matching-policy refresh", async () => {
+    replaceProjectBaseline(structuredClone(scriptFixture) as Project);
+    await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    expect(
+      useProjectStore
+        .getState()
+        .project.scriptAssistance!.records.find((r) => r.id === "automatic-example"),
+    ).toMatchObject({ status: "applied" });
+    expect(
+      useProjectStore
+        .getState()
+        .project.scriptAssistance!.records.find((r) => r.id === "automatic-example")!
+        .historicalReason,
+    ).toBeUndefined();
+  });
+  it("archives old matching-policy suggestions in the analyzed scope before replacing them", async () => {
+    await setup();
+    await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    const p = structuredClone(useProjectStore.getState().project);
+    p.scriptAssistance!.records = p.scriptAssistance!.records.map((r) => ({
+      ...r,
+      id: "legacy:" + r.id,
+      policy: "script-match-v1",
+    }));
+    replaceProjectBaseline(p);
+    await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    const records = useProjectStore.getState().project.scriptAssistance!.records;
+    expect(
+      records.filter((r) => r.id.startsWith("legacy:")).every((r) => !!r.historicalReason),
+    ).toBe(true);
+    expect(records.some((r) => !r.historicalReason && r.policy === "script-match-v2")).toBe(true);
+  });
   it("retains valid audio evidence when subsequently finding text differences", async () => {
     await setup();
     await runScriptReconciliation(createScriptRun(), undefined, "large-v3-turbo", vi.fn());

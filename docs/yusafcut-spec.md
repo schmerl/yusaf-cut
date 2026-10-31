@@ -666,3 +666,11 @@ script attachment preserves that scope; changing text or opening a project clear
 stale scope. A missing script offers setup directly. Correction highlight tooltips
 show the proposed before → replacement text so whole-transcript review needs no
 manual paragraph selection.
+
+Inline review refinements: vocal fillers use filler decisions, not scripted word
+substitutions. Exact numeric notation can be proposed when digit/decimal values
+agree. A match with no inferred replacement is labeled Needs review with explicit
+custom text/dismissal options. Popovers allow user-entered text changes without
+cutting audio. Off-script cuts use selected source bounds with optional silence
+buffers; they preserve neighboring words/captions and show duration and following
+text before commit. A cut can split a displayed paragraph into retained fragments.

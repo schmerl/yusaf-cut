@@ -38,3 +38,11 @@ rejection and preservation of independently recognized evidence. These supersede
 the prior panel/refresh interactions. Native shortcut/focus behavior, perceived
 latency and audible joins still require the updated human walkthrough. Text-only
 proposals do not count as evaluated automatic corrections for SC-04/05/14/16.
+
+Native review uncovered filler misclassification, unclear no-replacement cards,
+missing decimal/status notation and unsuitable legacy cut padding. Development
+`4.8.0-dev.5` adds regressions for those cases, custom user replacements, an 80 ms
+word cut with its following text/captions preserved, adjustable off-script buffers
+and hidden-neighbor rejection. These checks supplement SC-05/08/09/11/12; they do
+not establish audible joins or automatic acoustic eligibility. Re-run Find
+differences in the updated build before the focused human checks.

@@ -32,6 +32,7 @@ import { FindReplacePanel } from "./FindReplacePanel";
 import { InlineReview, selectReviewTarget } from "./InlineReview";
 import { useAppCommands } from "@/lib/appCommands";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { isVocalFillerOnly } from "@/lib/scriptMatching";
 import { locateScriptRecord } from "@/lib/scriptLifecycle";
 
 const TimedParagraph = Paragraph.extend({
@@ -229,7 +230,10 @@ export function TranscriptEditor({
                       fillers: fillerCandidates(model.current).filter((c) => !c.hidden),
                       blocks: new Map(scriptBlocks.map((b) => [`${b.segmentId}:${b.id}`, b])),
                       scripts: (model.current.scriptAssistance?.records ?? []).flatMap((record) => {
-                        if (!["applied", "suggested", "off-script"].includes(record.status))
+                        if (
+                          !["applied", "suggested", "off-script"].includes(record.status) ||
+                          (record.status !== "applied" && isVocalFillerOnly(record.beforeText))
+                        )
                           return [];
                         const location = locateScriptRecord(model.current, record, scriptBlocks);
                         return location

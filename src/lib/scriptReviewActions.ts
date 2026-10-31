@@ -1,8 +1,10 @@
-import { computeTimeline, totalDuration, type Project } from "./edl";
+import { v4 as uuid } from "uuid";
+import { reconcileFillerReview } from "./fillerReview";
+import { computeTimeline, type Project } from "./edl";
 import { locateScriptRecord, reconcileScriptReview } from "./scriptLifecycle";
 import { scriptRunProtected, isSimpleFormatting } from "./scriptMatching";
 import {
-  cutTranscriptRanges,
+  reconcileTranscript,
   replaceTranscriptBatch,
   replaceTranscriptText,
 } from "./transcriptEdits";
@@ -160,37 +162,100 @@ export interface OffScriptCutProposal {
   cutEnd: number;
   joinOutput: number;
 }
-export function buildOffScriptCut(project: Project, id: string): OffScriptCutProposal {
+export function buildOffScriptCut(
+  project: Project,
+  id: string,
+  buffers = { beforeMs: 0, afterMs: 0 },
+): OffScriptCutProposal {
   const record = project.scriptAssistance?.records.find(
     (r) => r.id === id && r.kind === "off-script" && r.status === "off-script",
   );
   const location = record && locateScriptRecord(project, record);
   if (!record || !location)
     throw new Error("This off-script passage changed. Reconcile it again before cutting.");
-  const next = cutTranscriptRanges(project, [
+  if (![buffers.beforeMs, buffers.afterMs].every((n) => Number.isFinite(n) && n >= 0))
+    throw new Error("Enter nonnegative, finite cut buffers in milliseconds.");
+  const normalized = normalizeProjectTranscripts(project);
+  const source = normalized.segments.find((s) => s.id === location.block.segmentId)!;
+  const ids = new Set(record.anchorIds);
+  const cutStart = record.sourceIn - buffers.beforeMs / 1000;
+  const cutEnd = record.sourceOut + buffers.afterMs / 1000;
+  if (cutStart < source.sourceIn || cutEnd > source.sourceOut || cutEnd <= cutStart)
+    throw new Error("The cut buffer crosses an existing edit boundary.");
+  const remaining = source.words.filter(
+    (w) => !ids.has(w.id) && w.end > source.sourceIn && w.start < source.sourceOut,
+  );
+  if (remaining.some((w) => w.start < cutEnd && w.end > cutStart))
+    throw new Error("The cut buffer overlaps neighboring speech. Reduce the buffer.");
+  const fragments = [
+    [source.sourceIn, cutStart],
+    [cutEnd, source.sourceOut],
+  ].flatMap(([from, to]) => {
+    if (to! <= from!) return [];
+    const words = remaining.filter((w) => w.end > from! && w.start < to!);
+    const fragment = reconcileTranscript(source, {
+      ...source,
+      id: uuid(),
+      words,
+      sourceIn: from!,
+      sourceOut: to!,
+      precise: true,
+    });
+    return [words.length ? fragment : { ...fragment, transcript: undefined }];
+  });
+  const next = reconcileScriptReview(
+    reconcileFillerReview({
+      ...normalized,
+      segments: normalized.segments.flatMap((s) => (s.id === source.id ? fragments : [s])),
+    }),
+  );
+  const entry = computeTimeline(project).find((e) => e.segmentId === source.id)!;
+  return {
+    before: project,
+    result: reconcileScriptReview(updateRecord(next, record.id, "cut")),
+    cutStart,
+    cutEnd,
+    joinOutput: entry.outputStart + cutStart - source.sourceIn,
+  };
+}
+
+/** An explicit user replacement; script similarity never supplies this decision. */
+export function replaceScriptReviewText(project: Project, id: string, text: string): Project {
+  const record = project.scriptAssistance?.records.find((r) => r.id === id);
+  const location = record && locateScriptRecord(project, record);
+  if (!record || !location || !["suggested", "off-script", "applied"].includes(record.status))
+    throw new Error("This passage changed. Select a current suggestion.");
+  if (text.length > 100000 || /[\r\n\0]/u.test(text))
+    throw new Error("Enter replacement text within one paragraph.");
+  const next = replaceTranscriptText(
+    project,
     {
       segmentId: location.block.segmentId,
       blockId: location.block.id,
       from: location.from,
       to: location.to,
+      text,
     },
-  ]);
-  const entry = computeTimeline(project).find((e) => e.segmentId === location.block.segmentId)!;
-  const segment = project.segments.find((s) => s.id === location.block.segmentId)!;
-  const durationRemoved = totalDuration(project) - totalDuration(next);
-  if (durationRemoved <= 0) throw new Error("This passage has no valid speech cut.");
-  // Existing explicit-cut padding may remove a different span than the anchor
-  // bounds. Report the actual surviving boundary used by both preview and commit.
-  const beforeAnchor = segment.words.filter((w) => w.end <= record.sourceIn).at(-1);
-  const actualStart = beforeAnchor
-    ? Math.min(segment.sourceOut, beforeAnchor.end + project.settings.paddingMs / 1000)
-    : segment.sourceIn;
-  const joinOutput = entry.outputStart + actualStart - segment.sourceIn;
-  return {
-    before: project,
-    result: reconcileScriptReview(updateRecord(next, record.id, "cut")),
-    cutStart: actualStart,
-    cutEnd: actualStart + durationRemoved,
-    joinOutput,
+    { author: "review", recordId: id },
+  );
+  const updated = {
+    ...next,
+    scriptAssistance: {
+      ...next.scriptAssistance!,
+      records: next.scriptAssistance!.records.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              afterText: text,
+              status: "accepted" as const,
+              historicalReason: undefined,
+              reason: r.reason + " Replacement entered by the user.",
+            }
+          : r,
+      ),
+    },
   };
+  const result = reconcileScriptReview(updated);
+  validateProjectTranscripts(result);
+  return result;
 }

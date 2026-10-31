@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import type { TextRange } from "@/lib/transcriptEdits";
 import { computeTimeline, type Project } from "@/lib/edl";
 import { projectTranscript } from "@/lib/transcript";
+import { isVocalFillerOnly } from "@/lib/scriptMatching";
+import { replaceTranscriptText } from "@/lib/transcriptEdits";
 import { locateScriptRecord } from "@/lib/scriptLifecycle";
 import { fillerCandidates, type FillerCandidate } from "@/lib/fillerReview";
 import { buildFillerCutProposal, removeFillerText, setFillerDecision } from "@/lib/fillerActions";
@@ -11,6 +13,7 @@ import {
   buildOffScriptCut,
   bulkScriptPunctuation,
   scriptReviewAction,
+  replaceScriptReviewText,
 } from "@/lib/scriptReviewActions";
 import { createScriptRun, runScriptReconciliation, type ScriptRun } from "@/lib/scriptWorkflow";
 import { estimateFillerBoundaries } from "@/lib/ipc";
@@ -53,6 +56,7 @@ export function InlineReview({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [customText, setCustomText] = useState("");
   const [offsets, setOffsets] = useState({ startMs: 0, endMs: 0 });
   const [estimateBusy, setEstimateBusy] = useState(false);
   const [position, setPosition] = useState({ left: 16, top: 160 });
@@ -88,7 +92,11 @@ export function InlineReview({
       timeline = computeTimeline(project);
     const list: Item[] = [];
     for (const record of project.scriptAssistance?.records ?? []) {
-      if (!["suggested", "off-script", "applied"].includes(record.status)) continue;
+      if (
+        !["suggested", "off-script", "applied"].includes(record.status) ||
+        (record.status !== "applied" && isVocalFillerOnly(record.beforeText))
+      )
+        continue;
       const location = locateScriptRecord(project, record, blocks);
       if (!location) continue;
       const segment = project.segments.find((s) => s.id === location.block.segmentId)!;
@@ -259,7 +267,10 @@ export function InlineReview({
     if (!current) throw new Error("Select a surviving suggestion.");
     return current.filler
       ? buildFillerCutProposal(project, current.filler, offsets)
-      : buildOffScriptCut(project, current.id);
+      : buildOffScriptCut(project, current.id, {
+          beforeMs: -offsets.startMs,
+          afterMs: offsets.endMs,
+        });
   }
   function listen(cut: boolean) {
     attempt(() => {
@@ -403,9 +414,22 @@ export function InlineReview({
     "review-previous": () => step(-1),
     "format-script": format,
   });
+  useEffect(() => {
+    setCustomText(current?.record?.afterText ?? current?.filler?.text ?? "");
+  }, [current?.id, current?.record?.afterText, current?.filler?.text]);
   const record = current?.record;
   const canCut = !!current?.filler || record?.status === "off-script";
   const title = current?.filler ? current.filler.text : record?.beforeText;
+  const followingText = useMemo(
+    () =>
+      current
+        ? projectTranscript(project)
+            .find((b) => b.segmentId === current.segmentId && b.id === current.blockId)
+            ?.text.slice(current.to, current.to + 90)
+            .trim()
+        : "",
+    [project, current],
+  );
   return (
     <>
       <div className="inline-review-toolbar" aria-label="Transcript review">
@@ -515,7 +539,9 @@ export function InlineReview({
                   ? "Filler"
                   : record?.status === "off-script"
                     ? "Possible off-script speech"
-                    : "Script suggestion"}
+                    : record?.beforeText === record?.afterText
+                      ? "Needs review"
+                      : "Script suggestion"}
               </strong>
               <Button
                 size="sm"
@@ -546,15 +572,16 @@ export function InlineReview({
                   </Button>
                   {record?.status === "suggested" && (
                     <>
-                      <Button
-                        size="sm"
-                        disabled={record.beforeText === record.afterText}
-                        onClick={() =>
-                          attempt(() => commit(scriptReviewAction(project, record.id, "accept")))
-                        }
-                      >
-                        Accept
-                      </Button>
+                      {record.beforeText !== record.afterText && (
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            attempt(() => commit(scriptReviewAction(project, record.id, "accept")))
+                          }
+                        >
+                          Accept
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -631,48 +658,139 @@ export function InlineReview({
                     </>
                   )}
                 </div>
-                {current.filler && (
+                {canCut && (
                   <details className="mt-2">
                     <summary>Adjust cut</summary>
                     <div className="flex flex-wrap gap-2 my-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={estimateBusy}
-                        onClick={() => void estimate()}
-                      >
-                        {estimateBusy ? "Estimating…" : "Estimate from audio"}
-                      </Button>
+                      {current.filler && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={estimateBusy}
+                          onClick={() => void estimate()}
+                        >
+                          {estimateBusy ? "Estimating…" : "Estimate from audio"}
+                        </Button>
+                      )}
                       {(["startMs", "endMs"] as const).map((side) => (
                         <label key={side} className="text-xs">
-                          {side === "startMs" ? "Start" : "End"} (ms)
+                          {current.filler
+                            ? side === "startMs"
+                              ? "Start"
+                              : "End"
+                            : side === "startMs"
+                              ? "Buffer before"
+                              : "Buffer after"}{" "}
+                          (ms)
                           <input
-                            aria-label={side === "startMs" ? "Cut start offset" : "Cut end offset"}
+                            aria-label={
+                              current.filler
+                                ? side === "startMs"
+                                  ? "Cut start offset"
+                                  : "Cut end offset"
+                                : side === "startMs"
+                                  ? "Cut buffer before"
+                                  : "Cut buffer after"
+                            }
                             type="number"
                             step="10"
-                            value={offsets[side]}
+                            min={current.filler ? undefined : 0}
+                            value={
+                              !current.filler && side === "startMs" ? -offsets[side] : offsets[side]
+                            }
                             className="w-20"
                             onChange={(e) => {
                               estimateSerial.current++;
                               setEstimateBusy(false);
-                              setOffsets({ ...offsets, [side]: Number(e.target.value) });
+                              setOffsets({
+                                ...offsets,
+                                [side]:
+                                  Number(e.target.value) *
+                                  (!current.filler && side === "startMs" ? -1 : 1),
+                              });
                               setPreview(null);
                             }}
                           />
                         </label>
                       ))}
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        attempt(() => commit(removeFillerText(project, current.filler!)))
-                      }
-                    >
-                      Remove text only
-                    </Button>
+                    {current.filler && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          attempt(() => commit(removeFillerText(project, current.filler!)))
+                        }
+                      >
+                        Remove text only
+                      </Button>
+                    )}
                   </details>
                 )}
+                {canCut && followingText && (
+                  <p className="mt-2 text-xs" aria-label="Retained following text">
+                    Keeps following text: {followingText}
+                  </p>
+                )}
+                {preview?.before === project && (
+                  <p className="text-xs" aria-label="Proposed cut duration">
+                    Removes {(preview.cutEnd - preview.cutStart).toFixed(3)} seconds; neighboring
+                    words are retained.
+                  </p>
+                )}
+                {record && record.beforeText === record.afterText && (
+                  <p className="mt-2 text-xs">
+                    No replacement was inferred. Listen, enter your own wording, or dismiss this
+                    item.
+                  </p>
+                )}
+                <details className="mt-2">
+                  <summary>Edit text</summary>
+                  <label className="block text-xs">
+                    Your replacement
+                    <input
+                      aria-label="Your replacement"
+                      className="w-full my-2"
+                      value={customText}
+                      onChange={(e) => setCustomText(e.target.value)}
+                    />
+                  </label>
+                  <Button
+                    size="sm"
+                    disabled={
+                      customText ===
+                      (record
+                        ? record.status === "applied"
+                          ? record.afterText
+                          : record.beforeText
+                        : current.filler!.text)
+                    }
+                    onClick={() =>
+                      attempt(() => {
+                        commit(
+                          record
+                            ? replaceScriptReviewText(project, record.id, customText)
+                            : replaceTranscriptText(
+                                project,
+                                {
+                                  segmentId: current.filler!.segmentId,
+                                  blockId: current.filler!.blockId,
+                                  from: current.filler!.from,
+                                  to: current.filler!.to,
+                                  text: customText,
+                                },
+                                { author: "manual" },
+                              ),
+                        );
+                      })
+                    }
+                  >
+                    Save text
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Changes transcript and captions only.
+                  </p>
+                </details>
                 {tinyTiming &&
                   (estimatedFor?.id !== current.id || estimatedFor.project !== project) && (
                     <p className="text-xs">
