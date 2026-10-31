@@ -38,6 +38,12 @@ persistent script/filler decision log with guarded revisit/revert, and complete
 original-word restart markers. The current human script covers these changes;
 automatic acoustic eligibility/application and held-out acceptance remain unfinished.
 
+Current regression checkpoint `4.8.0-dev.7` preserves exact surviving pending
+suggestions across filler/off-script cuts and filler text edits, and automatically
+estimates timing when entering an eligible filler. Request/project/session/manual
+edit guards prevent stale estimate application. See the three-minute focused
+walkthrough; automatic wording application remains disabled and unfinished.
+
 ## Outcome and delivery order
 
 Import a Markdown teleprompter script, reconcile the whole edited transcript or

@@ -682,3 +682,10 @@ can locate surviving text, reopen decisions, revert unchanged accepted text, or
 undo the latest review action when applicable. Restoring cut audio requires Undo
 or existing snapshots. Original-word punctuation belongs to its off-script range;
 this does not permit arbitrary partial timing-group cuts.
+
+Entering an eligible filler automatically estimates its local audio boundaries;
+manual adjustments and explicit Preview/Cut approval remain available. Estimates
+must not apply after navigation, project/session changes or manual timing edits.
+A filler/off-script cut or filler text edit must preserve independent pending
+suggestions whose exact wording, anchors, timing and occurrence survive, even if
+the paragraph splits. Removed/changed targets must not be resurrected.

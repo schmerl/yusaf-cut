@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Development
+- Preserve untouched script suggestions when a filler/off-script cut splits their
+  paragraph. Rebase context only for exact surviving anchors/text/timing in the
+  same occurrence; removed targets remain invalidated. Apply the same protection
+  to filler text hiding and explicit filler wording changes.
+- Automatically estimate bounded filler cut timing when entering an eligible
+  filler. Show progress/uncertainty and reject late results after navigation,
+  project/session changes or manual boundary adjustments. No automatic cut occurs.
 - Advance to the next combined script/filler item after Accept, Dismiss or saving
   custom wording; preserve adjacent unchanged proposals during explicit review edits.
 - Add a durable Review log for script/filler decisions, source spans and before/after

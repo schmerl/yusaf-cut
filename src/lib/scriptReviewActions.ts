@@ -223,7 +223,9 @@ export function buildOffScriptCut(
   return {
     before: project,
     result: logScriptReview(
-      reconcileScriptReview(updateRecord(next, record.id, "cut")),
+      reconcileScriptReview(
+        rebaseReviewContexts(project, updateRecord(next, record.id, "cut"), record.id),
+      ),
       { ...record, sourceIn: cutStart, sourceOut: cutEnd },
       "cut",
     ),

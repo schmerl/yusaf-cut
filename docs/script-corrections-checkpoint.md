@@ -1,12 +1,45 @@
 # Script corrections: inline workflow checkpoint
 
-Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.6`.
+Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.7`.
 The earlier walkthrough found slow audio analysis, excessive panels, missing native
 Undo/Redo, lost transcript position after cutting, and an Undo → Keep error. This
 checkpoint addresses that workflow. **The complete automatic correction feature
 is still unfinished; automatic wording changes remain disabled.**
 
-## Current review — advancing, combined queue and saved log
+## Current review — neighboring suggestions and automatic filler timing
+
+Allow about three minutes. Use the existing disposable project, and quit/reopen
+the rebuilt debug app using the command below. No original or earlier review copy
+was overwritten.
+
+1. Click **Find differences** once to regenerate a name proposal that an older
+   build already archived. New cuts preserve neighboring pending suggestions from
+   now on; the app does not silently revive previously archived history on load.
+2. Find the body example near 01:34: `Here's [AH] a body a rider's application could
+   send to hail me.` The source copy may spell the filler `[UH]`. Confirm the filler
+   and name correction are both marked. Click the filler: **Estimating filler cut
+   from audio…** should appear automatically. Do not click Estimate from audio.
+   Wait for the result, inspect **Adjust cut**, and preview/listen.
+3. **Cut speech** for the filler. `hail me → HailMe` must remain marked and
+   actionable in the retained transcript fragment. Click it and Accept; duration
+   must change only for the filler cut, not the wording correction. Undo the text
+   acceptance, then Undo the cut if you want to restore the example.
+4. Move to another filler using Previous/Next or by clicking it. Estimation starts
+   once for that visit. While it runs, navigate away and back, or change an offset
+   manually. Late results must not change another filler's boundaries or overwrite
+   your manual offsets. Estimation alone must not dirty the project or make a cut.
+   If the estimate is uncertain/unavailable, a status explains it; preview or adjust
+   the current timing. Very short anchors require an estimate or manual timing
+   adjustment. A filler sharing a corrected timing group cannot be isolated safely.
+
+The automatic estimator is the existing bounded local audio-boundary analysis,
+not another Whisper transcription or a model download. Neighbor preservation
+requires exactly surviving text, anchors, timing and a unique recording occurrence.
+A candidate whose own speech is removed remains invalidated. The same protection
+covers filler text hiding/custom edits and off-script cuts. Audible timing and
+native focus still need your review.
+
+## Previous review — advancing, combined queue and saved log
 
 Allow about five minutes. Your existing disposable review copy can be used; no
 source media/project or previous review copy was overwritten.
@@ -169,8 +202,8 @@ Autosave affects the disposable project, so use the specified paths.
 7. Choose **Review → Review Fillers**. Navigate or click an amber filler directly.
    Its popover offers Play, Preview cut, Cut speech and Keep speech. Preview and cut
    one filler, listen to the join, then Undo → Keep speech. Check transcript position
-   and duration. **Adjust cut** exposes timing offsets and audio estimation on demand;
-   unusually short timing anchors require an audio estimate before the inline cut.
+   and duration. **Adjust cut** exposes timing offsets and automatic audio estimation;
+   unusually short timing anchors require an estimate or manual timing adjustment before cutting.
    Text-only hiding and detection preferences remain under the optional controls.
 
 8. Test the opening flow without modifying the original project. Use **Open**,
@@ -198,7 +231,7 @@ See the [acceptance audit](script-corrections-acceptance.md) and
 text-only suggestions without recognizer calls, retained audio evidence, optional
 script opening, native menu command/history wiring, inline review/captions,
 preview/commit identity, scroll preservation, Undo → Keep, and stale audio estimates.
-Validation: typechecking/lint, 330 frontend tests and 69 Rust tests pass, and the
+Validation: typechecking/lint, 337 frontend tests and 69 Rust tests pass, and the
 debug macOS app builds. Native UI automation was not approved for YusafCut, so its
 running menus, focus behavior and audible joins were not inspected automatically.
 Original study project hashes still match; private recordings/scripts/labels remain

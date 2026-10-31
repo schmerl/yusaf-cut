@@ -53,3 +53,10 @@ round trips, guarded revisit/revert, filler cut logging and latest Undo, plus th
 hyphenated restart regression. Cut history entries record actual buffered source
 spans. Native navigation/focus and audible joins still require the current script.
 Automatic acoustic requirements remain unaccepted.
+
+Regression checkpoint `4.8.0-dev.7` covers filler cuts preserving an independent
+name proposal in the same paragraph (also confirmed on the reported body example),
+filler hiding/custom text and off-script cuts preserving surviving proposals,
+removed-target invalidation, automatic once-per-visit estimation, stale navigation
+results and manual timing overrides. Automated estimates remain proposals; audible
+joins and native interaction require the current focused walkthrough.

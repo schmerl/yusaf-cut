@@ -83,8 +83,8 @@ export function reconcileScriptReview(project: Project): Project {
   return changed ? { ...project, scriptAssistance: { ...metadata, records } } : project;
 }
 
-/** Only explicit review text edits may rebase unchanged neighboring proposals. */
-export function rebaseReviewContexts(before: Project, next: Project, changedId: string): Project {
+/** Explicit review edits/cuts may rebase only unchanged surviving proposals. */
+export function rebaseReviewContexts(before: Project, next: Project, changedId?: string): Project {
   if (!next.scriptAssistance) return next;
   const blocks = projectTranscript({
     ...next,

@@ -1,16 +1,19 @@
 import { ReviewHistory } from "./ReviewHistory";
-import { logFillerReview } from "@/lib/reviewLog";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import type { TextRange } from "@/lib/transcriptEdits";
 import { computeTimeline, type Project } from "@/lib/edl";
 import { projectTranscript } from "@/lib/transcript";
 import { isVocalFillerOnly } from "@/lib/scriptMatching";
-import { replaceTranscriptText } from "@/lib/transcriptEdits";
 import { locateScriptRecord } from "@/lib/scriptLifecycle";
 import { fillerCandidates, type FillerCandidate } from "@/lib/fillerReview";
-import { buildFillerCutProposal, removeFillerText, setFillerDecision } from "@/lib/fillerActions";
+import {
+  replaceFillerText,
+  buildFillerCutProposal,
+  removeFillerText,
+  setFillerDecision,
+} from "@/lib/fillerActions";
 import {
   buildOffScriptCut,
   bulkScriptPunctuation,
@@ -63,6 +66,8 @@ export function InlineReview({
   const [customText, setCustomText] = useState("");
   const [offsets, setOffsets] = useState({ startMs: 0, endMs: 0 });
   const [estimateBusy, setEstimateBusy] = useState(false);
+  const [estimateNotice, setEstimateNotice] = useState("");
+  const [manualTiming, setManualTiming] = useState(false);
   const [position, setPosition] = useState({ left: 16, top: 160 });
   const [preview, setPreview] = useState<{
     before: Project;
@@ -170,6 +175,7 @@ export function InlineReview({
   const index = queue.findIndex((i) => i.id === current?.id && i.kind === current?.kind);
   useEffect(() => {
     const listener = (event: Event) => {
+      estimateSerial.current++;
       setSelected((event as CustomEvent<ReviewTarget>).detail);
       setError("");
       setPreview(null);
@@ -260,6 +266,7 @@ export function InlineReview({
     }
   }
   function choose(item: Item | undefined) {
+    estimateSerial.current++;
     stop();
     setSelected(item ?? null);
     setPreview(null);
@@ -325,14 +332,16 @@ export function InlineReview({
       });
     });
   }
-  async function estimate() {
-    if (!current?.filler) return;
-    const candidate = current.filler,
+  const selectedFiller = current?.filler;
+  const estimate = useCallback(async () => {
+    if (!selectedFiller || selectedFiller.grouped || selectedFiller.residual) return;
+    stop();
+    const candidate = selectedFiller,
       expected = project,
       captured = projectSession(),
       serial = ++estimateSerial.current;
     setEstimateBusy(true);
-    setError("");
+    setEstimateNotice("");
     try {
       const result = await estimateFillerBoundaries(
         expected,
@@ -345,8 +354,13 @@ export function InlineReview({
         projectSession() !== captured
       )
         return;
-      if (result.start === null || result.end === null) throw new Error(result.reason);
-      const words = project.segments
+      if (result.start === null || result.end === null) {
+        setEstimateNotice(
+          `Audio boundaries are uncertain: ${result.reason} Preview or adjust the current cut.`,
+        );
+        return;
+      }
+      const words = expected.segments
         .find((s) => s.id === candidate.segmentId)!
         .words.filter((w) => candidate.anchorIds.includes(w.id));
       const next = {
@@ -358,12 +372,15 @@ export function InlineReview({
       setPreview(null);
       setEstimatedFor({ id: candidate.id, project: expected });
     } catch (cause) {
-      if (serial === estimateSerial.current) setError(String(cause));
+      if (serial === estimateSerial.current)
+        setEstimateNotice(
+          `Audio estimate unavailable: ${cause instanceof Error ? cause.message : String(cause)} Current timing is retained; preview or adjust the cut.`,
+        );
     } finally {
       if (serial === estimateSerial.current) setEstimateBusy(false);
     }
-  }
-  // Very short recognition anchors need audio boundaries before an inline cut.
+  }, [selectedFiller, project, stop]);
+  // Very short recognition anchors need estimated or manually reviewed boundaries.
   const tinyTiming =
     !!current?.filler && current.filler.sourceEnd - current.filler.sourceStart <= 0.040001;
   const [estimatedFor, setEstimatedFor] = useState<{ id: string; project: Project } | null>(null);
@@ -371,8 +388,18 @@ export function InlineReview({
     estimateSerial.current++;
     setEstimateBusy(false);
     setEstimatedFor(null);
+    setManualTiming(false);
+    setEstimateNotice("");
     setOffsets({ startMs: 0, endMs: 0 });
   }, [selected?.id, project]);
+  useEffect(() => {
+    if (!selectedFiller || selectedFiller.grouped || selectedFiller.residual) return;
+    const generation = estimateSerial;
+    void estimate();
+    return () => {
+      generation.current++;
+    };
+  }, [selectedFiller, estimate]);
   async function find(selectedOnly: boolean, audio = false) {
     if (busy) return;
     if (!project.scriptAssistance) {
@@ -678,6 +705,7 @@ export function InlineReview({
                         disabled={
                           estimateBusy ||
                           (tinyTiming &&
+                            !manualTiming &&
                             (estimatedFor?.id !== current.id || estimatedFor.project !== project))
                         }
                         onClick={() =>
@@ -751,6 +779,8 @@ export function InlineReview({
                             onChange={(e) => {
                               estimateSerial.current++;
                               setEstimateBusy(false);
+                              setManualTiming(true);
+                              stop();
                               setOffsets({
                                 ...offsets,
                                 [side]:
@@ -775,6 +805,16 @@ export function InlineReview({
                       </Button>
                     )}
                   </details>
+                )}
+                {estimateBusy && (
+                  <p role="status" className="mt-2 text-xs">
+                    Estimating filler cut from audio…
+                  </p>
+                )}
+                {!estimateBusy && estimateNotice && (
+                  <p role="status" className="mt-2 text-xs">
+                    {estimateNotice}
+                  </p>
                 )}
                 {canCut && followingText && (
                   <p className="mt-2 text-xs" aria-label="Retained following text">
@@ -819,22 +859,7 @@ export function InlineReview({
                         commit(
                           record
                             ? replaceScriptReviewText(project, record.id, customText)
-                            : logFillerReview(
-                                replaceTranscriptText(
-                                  project,
-                                  {
-                                    segmentId: current.filler!.segmentId,
-                                    blockId: current.filler!.blockId,
-                                    from: current.filler!.from,
-                                    to: current.filler!.to,
-                                    text: customText,
-                                  },
-                                  { author: "manual" },
-                                ),
-                                current.filler!,
-                                "replace",
-                                customText,
-                              ),
+                            : replaceFillerText(project, current.filler!, customText),
                           true,
                         );
                       })
@@ -847,9 +872,11 @@ export function InlineReview({
                   </p>
                 </details>
                 {tinyTiming &&
+                  !manualTiming &&
                   (estimatedFor?.id !== current.id || estimatedFor.project !== project) && (
                     <p className="text-xs">
-                      Estimate audio boundaries in Adjust cut before cutting this short anchor.
+                      Estimate or manually adjust the boundaries in Adjust cut before cutting this
+                      short anchor.
                     </p>
                   )}
                 {record && (

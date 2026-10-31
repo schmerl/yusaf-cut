@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TranscriptEditor } from "@/components/TranscriptEditor/TranscriptEditor";
 import { addMediaWithTranscript, newProject, totalDuration } from "@/lib/edl";
@@ -20,7 +20,14 @@ beforeEach(() => {
     })),
   );
   replaceProjectBaseline(p);
-  vi.mocked(estimateFillerBoundaries).mockReset();
+  vi.mocked(estimateFillerBoundaries)
+    .mockReset()
+    .mockResolvedValue({
+      start: null,
+      end: null,
+      reason: "Synthetic uncertain bounds",
+      limitedByNeighbor: false,
+    });
 });
 afterEach(() => {
   cleanup();
@@ -29,13 +36,14 @@ afterEach(() => {
 function popup() {
   return within(screen.getByRole("dialog", { name: "Review suggestion" }));
 }
-function open(index = 0) {
+async function open(index = 0) {
   fireEvent.click(document.querySelectorAll("[data-filler-id]")[index]!);
+  await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
 }
-it("clicks a filler in place, previews and commits the same cut, then Undo → Keep works", () => {
+it("clicks a filler in place, previews and commits the same cut, then Undo → Keep works", async () => {
   render(<TranscriptEditor />);
   const before = useProjectStore.getState().project;
-  open();
+  await open();
   expect(popup().getByText("[UM]")).toBeTruthy();
   fireEvent.click(popup().getByRole("button", { name: "Preview cut" }));
   const preview = useFillerAuditionStore.getState().request!.timeline;
@@ -49,11 +57,12 @@ it("clicks a filler in place, previews and commits the same cut, then Undo → K
   expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(popup().getByRole("button", { name: "Next" }));
   expect(popup().getByText("[UH]")).toBeTruthy();
+  await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
 });
-it("offers text-only removal on demand without changing duration", () => {
+it("offers text-only removal on demand without changing duration", async () => {
   render(<TranscriptEditor />);
   const duration = totalDuration(useProjectStore.getState().project);
-  open();
+  await open();
   fireEvent.click(popup().getByText("Adjust cut"));
   fireEvent.click(popup().getByRole("button", { name: "Remove text only" }));
   expect(screen.getByRole("textbox", { name: "Editable transcript" }).textContent).not.toContain(
@@ -61,7 +70,63 @@ it("offers text-only removal on demand without changing duration", () => {
   );
   expect(totalDuration(useProjectStore.getState().project)).toBe(duration);
 });
-it("ignores an audio boundary estimate arriving after navigation to a different filler", async () => {
+it("ignores an automatic boundary estimate arriving after navigation to a different filler", async () => {
+  const resolve: ((value: Awaited<ReturnType<typeof estimateFillerBoundaries>>) => void)[] = [];
+  vi.mocked(estimateFillerBoundaries).mockImplementation(() => new Promise((r) => resolve.push(r)));
+  render(<TranscriptEditor />);
+  fireEvent.click(document.querySelector("[data-filler-id]")!);
+  expect(estimateFillerBoundaries).toHaveBeenCalledTimes(1);
+  fireEvent.click(popup().getByRole("button", { name: "Next" }));
+  expect(estimateFillerBoundaries).toHaveBeenCalledTimes(2);
+  await act(async () =>
+    resolve[0]!({ start: 0.4, end: 0.9, reason: "Synthetic", limitedByNeighbor: false }),
+  );
+  fireEvent.click(popup().getByText("Adjust cut"));
+  expect(popup().getByRole("spinbutton", { name: "Cut start offset" })).toHaveValue(0);
+  expect(popup().getByRole("spinbutton", { name: "Cut end offset" })).toHaveValue(0);
+  expect(popup().getByText("[UH]")).toBeTruthy();
+  await act(async () =>
+    resolve[1]!({
+      start: null,
+      end: null,
+      reason: "Synthetic uncertain",
+      limitedByNeighbor: false,
+    }),
+  );
+});
+it("automatically estimates once per visited filler, without editing the project", async () => {
+  vi.mocked(estimateFillerBoundaries)
+    .mockResolvedValueOnce({
+      start: 0.45,
+      end: 0.85,
+      reason: "Synthetic",
+      limitedByNeighbor: false,
+    })
+    .mockResolvedValueOnce({
+      start: 1.45,
+      end: 1.85,
+      reason: "Synthetic",
+      limitedByNeighbor: false,
+    });
+  render(<TranscriptEditor />);
+  const before = useProjectStore.getState().project;
+  await open();
+  expect(estimateFillerBoundaries).toHaveBeenCalledTimes(1);
+  fireEvent.click(popup().getByText("Adjust cut"));
+  expect(popup().getByRole("spinbutton", { name: "Cut start offset" })).toHaveValue(-50);
+  expect(popup().getByRole("spinbutton", { name: "Cut end offset" })).toHaveValue(50);
+  fireEvent.change(popup().getByRole("spinbutton", { name: "Cut start offset" }), {
+    target: { value: "-20" },
+  });
+  expect(estimateFillerBoundaries).toHaveBeenCalledTimes(1);
+  expect(useProjectStore.getState().project).toBe(before);
+  fireEvent.click(popup().getByRole("button", { name: "Next" }));
+  await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
+  expect(estimateFillerBoundaries).toHaveBeenCalledTimes(2);
+  expect(popup().getByRole("spinbutton", { name: "Cut start offset" })).toHaveValue(-50);
+  expect(useProjectStore.getState().project).toBe(before);
+});
+it("does not overwrite manual timing when an automatic estimate arrives late", async () => {
   let resolve!: (value: Awaited<ReturnType<typeof estimateFillerBoundaries>>) => void;
   vi.mocked(estimateFillerBoundaries).mockImplementation(
     () =>
@@ -70,15 +135,14 @@ it("ignores an audio boundary estimate arriving after navigation to a different 
       }),
   );
   render(<TranscriptEditor />);
-  open();
+  fireEvent.click(document.querySelector("[data-filler-id]")!);
   fireEvent.click(popup().getByText("Adjust cut"));
-  fireEvent.click(popup().getByRole("button", { name: "Estimate from audio" }));
-  fireEvent.click(popup().getByRole("button", { name: "Next" }));
+  fireEvent.change(popup().getByRole("spinbutton", { name: "Cut start offset" }), {
+    target: { value: "-20" },
+  });
   await act(async () =>
     resolve({ start: 0.4, end: 0.9, reason: "Synthetic", limitedByNeighbor: false }),
   );
-  fireEvent.click(popup().getByText("Adjust cut"));
-  expect(popup().getByRole("spinbutton", { name: "Cut start offset" })).toHaveValue(0);
+  expect(popup().getByRole("spinbutton", { name: "Cut start offset" })).toHaveValue(-20);
   expect(popup().getByRole("spinbutton", { name: "Cut end offset" })).toHaveValue(0);
-  expect(popup().getByText("[UH]")).toBeTruthy();
 });

@@ -364,3 +364,23 @@ Matching policy v3 includes punctuation on a single original timed word when
 classifying off-script speech. Thus a truncated `documente-` is represented by its
 whole anchor instead of an unsupported partial range. Merged corrected groups and
 scope boundaries retain their existing restrictions.
+
+### Neighbor preservation and automatic filler timing (4.8.0-dev.7)
+
+Explicit filler/off-script cuts can split an original paragraph into retained
+fragments. After the normal cut reconciliation, `rebaseReviewContexts` recovers
+only previously active pending records whose full anchor set, expected text,
+source timing and unique occurrence survive. It updates their local before/after
+context in the same undoable transaction. Removed or changed targets remain
+archived; arbitrary stale history is never revived. Filler hiding and custom
+wording use the same guarded rebasing.
+
+Inline review automatically invokes the existing bounded `estimateFillerBoundaries`
+provider once per selected eligible filler/project. A stable callback prevents
+rerenders from starting duplicate requests. Navigation invalidates immediately;
+request serial, project/session and selected-candidate guards discard late results.
+Manual offsets invalidate pending estimates and remain authoritative. Preview/cut
+wait during estimation; uncertainty retains current timing with explicit guidance.
+Very short anchors require estimated or manually reviewed timing. Grouped/residual
+fillers retain their isolation restrictions. Estimation changes only local proposal
+state, never the project, caption text, log or media. It does not invoke Whisper.
