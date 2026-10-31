@@ -15,6 +15,7 @@ export type AppCommand =
   | "review-script"
   | "review-selected"
   | "review-fillers"
+  | "review-log"
   | "review-next"
   | "review-previous"
   | "format-script"

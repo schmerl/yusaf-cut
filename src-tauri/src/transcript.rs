@@ -128,6 +128,7 @@ pub fn validate_project(project: &Project) -> Result<()> {
     ensure!(project.version == 1, "unsupported project version");
     crate::filler_review::validate(project)?;
     crate::script_assistance::validate(project)?;
+    crate::review_log::validate(project)?;
     let mut occurrences = HashSet::new();
     let mut segments = HashSet::new();
     for segment in &project.segments {

@@ -5338,7 +5338,7 @@ dependencies = [
 
 [[package]]
 name = "yusafcut"
-version = "4.8.0-dev.5"
+version = "4.8.0-dev.6"
 dependencies = [
  "anyhow",
  "chrono",

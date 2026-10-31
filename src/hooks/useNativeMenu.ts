@@ -84,6 +84,7 @@ export function useNativeMenu() {
               await command("review-script", "Find Script Differences"),
               await command("review-selected", "Find Differences in Selection"),
               await command("review-fillers", "Review Fillers"),
+              await command("review-log", "Review Log…"),
               await command("review-next", "Next Suggestion", "Alt+ArrowDown"),
               await command("review-previous", "Previous Suggestion", "Alt+ArrowUp"),
               await command("format-script", "Apply Simple Formatting"),
@@ -119,7 +120,13 @@ export function useNativeMenu() {
               : ["export", "captions", "script"].includes(item.id)
                 ? project.segments.length > 0
                 : true;
-          void item.setEnabled(enabled);
+          void item.setEnabled(
+            item.id === "review-log"
+              ? !!project.reviewLog?.entries.length ||
+                  !!project.scriptAssistance?.records.length ||
+                  !!project.fillerReview?.decisions.length
+              : enabled,
+          );
         }
       };
       const unsub = useProjectStore.subscribe(update);

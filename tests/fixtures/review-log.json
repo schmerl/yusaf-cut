@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "decision-example",
+      "createdAt": "2026-10-31T12:00:00.000Z",
+      "kind": "script",
+      "action": "accept",
+      "beforeText": "sample",
+      "afterText": "example",
+      "mediaId": "m1",
+      "occurrenceLineage": "example-lineage",
+      "anchorIds": ["example-anchor"],
+      "sourceIn": 1.0,
+      "sourceOut": 2.0,
+      "recordId": "pending-example"
+    }
+  ]
+}

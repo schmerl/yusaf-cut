@@ -43,7 +43,13 @@ export default function App() {
     s.project.segments.some((seg) => seg.words.length > 0),
   );
   const reviewOpen = useUIStore((s) => s.fillerReviewOpen);
-  const showTranscript = hasTranscript || reviewOpen;
+  const hasReviewHistory = useProjectStore(
+    (s) =>
+      !!s.project.reviewLog?.entries.length ||
+      !!s.project.scriptAssistance?.records.length ||
+      !!s.project.fillerReview?.decisions.length,
+  );
+  const showTranscript = hasTranscript || reviewOpen || hasReviewHistory;
   const hasMedia = useProjectStore((s) => Object.keys(s.project.media).length > 0);
   const pushToast = useUIStore((s) => s.pushToast);
   const setMediaLoading = useUIStore((s) => s.setMediaLoading);

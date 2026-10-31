@@ -707,6 +707,33 @@ export function TranscriptEditor({
     occurrence?.scrollIntoView?.({ block: "nearest" });
   }, [editor, reviewId]);
 
+  useEffect(() => {
+    const reveal = (event: Event) => {
+      const { segmentId, anchorIds } = (
+        event as CustomEvent<{ segmentId: string; anchorIds: string[] }>
+      ).detail;
+      if (!editor || composed.current) return;
+      const block = projectTranscript(model.current).find(
+        (b) =>
+          b.segmentId === segmentId &&
+          b.runs.some((r) => r.anchorIds.some((id) => anchorIds.includes(id))),
+      );
+      const runs = block?.runs.filter((r) => r.anchorIds.some((id) => anchorIds.includes(id)));
+      if (!block || !runs?.length) return;
+      editor.state.doc.forEach((node, pos) => {
+        if (node.attrs.segmentId === block.segmentId && node.attrs.blockId === block.id)
+          editor.commands.setTextSelection({
+            from: pos + 1 + runs[0]!.from,
+            to: pos + 1 + runs.at(-1)!.to,
+          });
+      });
+      Array.from(editor.view.dom.querySelectorAll<HTMLElement>("[data-run-id]"))
+        .find((el) => el.dataset.runId === runs[0]!.id)
+        ?.scrollIntoView?.({ block: "center" });
+    };
+    window.addEventListener("yusafcut:reveal-review", reveal);
+    return () => window.removeEventListener("yusafcut:reveal-review", reveal);
+  }, [editor]);
   function seek(event: React.MouseEvent) {
     if (
       !event.metaKey &&

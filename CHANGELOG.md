@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Development
+- Advance to the next combined script/filler item after Accept, Dismiss or saving
+  custom wording; preserve adjacent unchanged proposals during explicit review edits.
+- Add a durable Review log for script/filler decisions, source spans and before/after
+  text, with Locate, guarded Review again/Revert text and latest-decision Undo.
+  Preserve the log through native saves/snapshots and normal undo/redo.
+- Include trailing punctuation in original-word off-script ranges, so truncated
+  restarts such as `documente-` are marked without bypassing timing-group guards.
 - Keep vocal fillers out of script wording replacements, and regenerate legacy
   pending results with the updated matching policy. Offer exact-value decimal and
   spoken-digit notation such as three point one → 3.1 and two O/Oh two → 202.

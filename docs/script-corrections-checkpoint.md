@@ -1,12 +1,50 @@
 # Script corrections: inline workflow checkpoint
 
-Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.5`.
+Branch: `feature/script-assisted-transcript-corrections`. Build: `4.8.0-dev.6`.
 The earlier walkthrough found slow audio analysis, excessive panels, missing native
 Undo/Redo, lost transcript position after cutting, and an Undo → Keep error. This
 checkpoint addresses that workflow. **The complete automatic correction feature
 is still unfinished; automatic wording changes remain disabled.**
 
-## Focused review of the reported issues — start here
+## Current review — advancing, combined queue and saved log
+
+Allow about five minutes. Your existing disposable review copy can be used; no
+source media/project or previous review copy was overwritten.
+
+1. Quit the old build, launch the debug app using the command below, and open your
+   disposable copy. Click **Find differences** to refresh pending matches with the
+   updated policy. Resolved decisions and corrected text remain preserved.
+2. Leave **All suggestions** selected. Click a wording suggestion and **Accept**:
+   the popover and transcript should move to the next remaining item, including
+   fillers. **Dismiss** and **Save text** also advance. Navigation wraps to earlier
+   unreviewed items if necessary and finishes only when the current queue is empty.
+   Explicit Script-only/Fillers filters and selected-passage scope remain available.
+   Play never decides; cuts stay selected for listening/Undo.
+3. Open **Review → Review Log…** or **Options → Review log…**. Inspect before/after
+   wording, outcome, time and source span. **Locate** returns to surviving text.
+   On a dismissed item, **Review again** reopens it without changing text. An
+   unchanged accepted replacement offers **Revert text**, which must preserve
+   unrelated later edits. These are separate undoable actions.
+4. Keep or cut a filler and inspect its log entry. **Undo latest decision** is
+   available only while that review action is the latest undoable operation. Cut
+   audio/video needs normal Undo or a saved snapshot to restore; text replacement
+   cannot restore it. Save/reopen and confirm the log persists. Logging starts in
+   this build; earlier retained script results/filler decisions appear as earlier
+   results where available, but older unrecorded cuts cannot be reconstructed.
+5. Find the `documente- documentation` restart near output 01:13 (time may shift
+   with edits). The matcher previously omitted the trailing hyphen, making its
+   proposed range look like part of a timing group; the safety guard then hid it.
+   It should now mark **documente-** as possible off-script speech, including the
+   hyphen and keeping **documentation**. Preview/listen before deciding. The fix
+   includes punctuation of an original timed word; it does not authorize cuts
+   through a merged corrected phrase or outside a selected scope.
+
+Automated checks cover combined-chain advancement, adjacent proposal preservation,
+failure without advancement, persisted log/schema/snapshot round trips, safe
+reopening/reverting, filler cut logging/Undo, and the truncated-word marker. Native
+focus, perceived flow and audible joins still need this walkthrough.
+
+## Earlier reported fixes — optional regression checks
 
 The updated build addresses fillers shown as wording replacements, unclear cards
 with no proposed change, missing spoken-number notation, cut boundaries/buffers,
@@ -160,7 +198,7 @@ See the [acceptance audit](script-corrections-acceptance.md) and
 text-only suggestions without recognizer calls, retained audio evidence, optional
 script opening, native menu command/history wiring, inline review/captions,
 preview/commit identity, scroll preservation, Undo → Keep, and stale audio estimates.
-Validation: typechecking/lint, 319 frontend tests and 66 Rust tests pass, and the
+Validation: typechecking/lint, 330 frontend tests and 69 Rust tests pass, and the
 debug macOS app builds. Native UI automation was not approved for YusafCut, so its
 running menus, focus behavior and audible joins were not inspected automatically.
 Original study project hashes still match; private recordings/scripts/labels remain

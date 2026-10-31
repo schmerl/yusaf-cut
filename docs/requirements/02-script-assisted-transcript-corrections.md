@@ -31,6 +31,14 @@ supersede panel-based prototype controls and the requirement to finish audio
 analysis before displaying review-only proposals. Audio-supported automatic edits
 still require the original evaluation and atomicity criteria below.
 
+On 2026-10-31 the user requested automatic advance after Accept/Dismiss, fillers
+in the Previous/Next chain, and a review log for revisiting decisions. The combined
+queue is now the default; saved custom wording also advances. The durable decision
+log includes source/context and guarded recovery for unchanged text/decisions.
+Cut audio still uses normal Undo or snapshots. A reported missed truncated restart
+was traced to exclusion of its hyphen from a timed-word range; include original-word
+punctuation while retaining partial corrected-group and scope guards.
+
 ## Confirmed decisions
 
 | Area | Requirement |

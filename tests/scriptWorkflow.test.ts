@@ -2,7 +2,7 @@ import scriptFixture from "./fixtures/script-assistance.json";
 import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import original from "./fixtures/transcript-corrections.json";
-import { computeTimeline, type Project } from "@/lib/edl";
+import { addMediaWithTranscript, newProject, computeTimeline, type Project } from "@/lib/edl";
 import { prepareScript, replaceStoredScript } from "@/lib/scriptAssistance";
 import { createScriptRun, runScriptReconciliation } from "@/lib/scriptWorkflow";
 import { scriptReviewAction } from "@/lib/scriptReviewActions";
@@ -65,6 +65,56 @@ beforeEach(() => {
   });
 });
 describe("staged audio reconciliation", () => {
+  it("does not reopen a dismissed proposal after accepting a neighboring proposal", async () => {
+    const p = replaceStoredScript(
+      addMediaWithTranscript(
+        newProject("Neighbor decisions"),
+        { ...original.media.m1, duration: 20 },
+        "Alpha bad middle wrong finish."
+          .split(" ")
+          .map((text, i) => ({
+            id: `word-${i}`,
+            text,
+            start: i * 0.5,
+            end: i * 0.5 + 0.3,
+            confidence: 1,
+          })),
+      ),
+      await prepareScript("Alpha good middle correct finish.", "synthetic.md"),
+    );
+    replaceProjectBaseline(p);
+    await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    let current = useProjectStore.getState().project;
+    const first = current.scriptAssistance!.records.find((r) => r.afterText === "good")!;
+    const second = current.scriptAssistance!.records.find((r) => r.afterText === "correct")!;
+    useProjectStore
+      .getState()
+      .commitTranscript(scriptReviewAction(current, second.id, "dismiss"), current);
+    current = useProjectStore.getState().project;
+    useProjectStore
+      .getState()
+      .commitTranscript(scriptReviewAction(current, first.id, "accept"), current);
+    const decided = useProjectStore.getState().project;
+    await runScriptReconciliation(
+      createScriptRun(),
+      undefined,
+      "large-v3-turbo",
+      vi.fn(),
+      undefined,
+      false,
+    );
+    expect(useProjectStore.getState().project).toBe(decided);
+    expect(decided.scriptAssistance!.records.find((r) => r.id === second.id)!.status).toBe(
+      "dismissed",
+    );
+  });
   it("keeps unreviewed applied markers across a matching-policy refresh", async () => {
     replaceProjectBaseline(structuredClone(scriptFixture) as Project);
     await runScriptReconciliation(
@@ -116,7 +166,7 @@ describe("staged audio reconciliation", () => {
     expect(
       records.filter((r) => r.id.startsWith("legacy:")).every((r) => !!r.historicalReason),
     ).toBe(true);
-    expect(records.some((r) => !r.historicalReason && r.policy === "script-match-v2")).toBe(true);
+    expect(records.some((r) => !r.historicalReason && r.policy === "script-match-v3")).toBe(true);
   });
   it("retains valid audio evidence when subsequently finding text differences", async () => {
     await setup();

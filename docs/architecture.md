@@ -334,3 +334,33 @@ neighboring/hidden speech. The normalized transcript is reconciled independently
 for both retained fragments and metadata. Segment splitting may display the retained
 tail as a new paragraph; its words, captions and source audio remain present. Popup
 context and preview duration make the intended removal visible before committing.
+
+### Combined review chain and decision log (4.8.0-dev.6)
+
+After an explicit Accept/Dismiss/custom text decision succeeds, inline review
+selects the next surviving item from the prior queue, including fillers by default.
+It wraps to remaining earlier items and completes only when the scoped/filter queue
+is empty. Failed actions never advance. Cuts remain pinned for audition/Undo.
+An explicit review text edit can rebase the context of neighboring pending records
+only if their exact anchors, text, timing and unique occurrence remain unchanged;
+manual unrelated edits retain the conservative stale-context behavior.
+
+Optional versioned `Project.reviewLog` records immutable decision entries alongside
+the same project transaction: action/kind, before/after text, timestamp, occurrence,
+anchors, actual source bounds and associated script/filler IDs. TS and Rust validate
+limits, IDs, kinds/actions, timestamps and finite source ranges. Historical log
+references may outlive cuts/media removal. No project snapshots or audio copies are
+embedded in entries. Save/load/snapshot and undo/redo retain the log.
+
+ReviewHistory is an on-demand dialog reached through native Review or Options.
+It pages saved entries and supplements them with older retained script/filler
+outcomes without inventing timestamps. Locate resolves a unique current occurrence;
+reopening dismissed/kept decisions and reverting accepted text use current exact
+mapping guards. Latest-decision Undo is offered only if the temporal predecessor
+predates that entry. A log cannot restore cut media after undo history is gone;
+existing snapshots remain the durable recovery mechanism for cuts.
+
+Matching policy v3 includes punctuation on a single original timed word when
+classifying off-script speech. Thus a truncated `documente-` is represented by its
+whole anchor instead of an unsupported partial range. Merged corrected groups and
+scope boundaries retain their existing restrictions.

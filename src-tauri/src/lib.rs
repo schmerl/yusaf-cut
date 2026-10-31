@@ -9,6 +9,7 @@
 
 mod filler_review;
 mod script_assistance;
+mod review_log;
 pub mod commands;
 pub mod edl;
 pub mod export_state;

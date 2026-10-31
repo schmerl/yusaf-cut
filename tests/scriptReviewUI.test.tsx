@@ -64,6 +64,22 @@ describe("inline transcript review", () => {
       ]);
     },
   );
+  it("returns whole/selected analysis to the combined chain including fillers", async () => {
+    vi.spyOn(workflow, "runScriptReconciliation").mockResolvedValue({
+      applied: 0,
+      pending: 0,
+      offScript: 0,
+      unsupported: 0,
+    });
+    open();
+    fireEvent.change(screen.getByRole("combobox", { name: "Review category" }), {
+      target: { value: "script" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find differences" }));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Review category" })).toHaveValue("all"),
+    );
+  });
   it("offers editable wording and an explanation when no replacement was inferred", () => {
     const p = structuredClone(fixture) as Project;
     const record = p.scriptAssistance!.records.find((r) => r.id === "pending-example")!;

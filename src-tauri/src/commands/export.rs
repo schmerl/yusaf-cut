@@ -951,6 +951,7 @@ mod tests {
             audio_tracks: vec![],
             filler_review: None,
             script_assistance: None,
+            review_log: None,
         }
     }
 

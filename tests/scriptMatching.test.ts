@@ -36,6 +36,22 @@ async function fixture(text: string, script: string, repeated = false): Promise<
   return replaceStoredScript(p, await prepareScript(script, "synthetic.md"));
 }
 describe("pure script matching and scope", () => {
+  it("flags a truncated restart including the hyphen as one complete timed word", async () => {
+    const p = await fixture(
+      "The editor generates docu- documentation for this example.",
+      "The editor generates documentation for this example.",
+    );
+    const candidate = scriptCandidates(p).find((c) => c.kind === "off-script");
+    expect(candidate).toMatchObject({ beforeText: "docu-", afterText: "docu-", actionable: true });
+    const b = projectTranscript(p)[0]!,
+      run = b.runs.find((r) => r.text === "docu-")!;
+    expect(candidate!.from).toBe(run.from);
+    expect(candidate!.to).toBe(run.to);
+    const partial = scriptCandidates(p, [
+      { segmentId: b.segmentId, blockId: b.id, from: run.from, to: run.to - 1 },
+    ]).find((c) => c.kind === "off-script");
+    expect(partial!.actionable).toBe(false);
+  });
   it("leaves vocal fillers to filler review instead of proposing a scripted cue", async () => {
     const p = await fixture(
       "[UH] We need a precise way to describe this example.",

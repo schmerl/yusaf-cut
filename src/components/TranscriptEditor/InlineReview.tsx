@@ -1,3 +1,5 @@
+import { ReviewHistory } from "./ReviewHistory";
+import { logFillerReview } from "@/lib/reviewLog";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,8 @@ export function InlineReview({
 }) {
   const project = useProjectStore((s) => s.project);
   const [filter, setFilter] = useState("all");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const advance = useRef<{ project: Project; ids: ReviewTarget[]; time: number } | null>(null);
   const [scope, setScope] = useState<TextRange[] | undefined>();
   const [selected, setSelected] = useState<ReviewTarget | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,6 +87,8 @@ export function InlineReview({
   );
   useEffect(() => {
     setSelected(null);
+    setHistoryOpen(false);
+    advance.current = null;
     setScope(undefined);
     setPreview(null);
     setError("");
@@ -141,6 +147,22 @@ export function InlineReview({
             r.to > item.from,
         )),
   );
+  useEffect(() => {
+    const pending = advance.current;
+    if (!pending) return;
+    advance.current = null;
+    if (project !== pending.project) return;
+    const next =
+      pending.ids
+        .map((id) => queue.find((item) => item.id === id.id && item.kind === id.kind))
+        .find(Boolean) ??
+      queue.find((item) => item.time >= pending.time) ??
+      queue[0];
+    setSelected(next ?? null);
+    setPreview(null);
+    setOffsets({ startMs: 0, endMs: 0 });
+    if (!next) setNotice("Review complete for this queue. Decisions are in the Review log.");
+  }, [project, queue]);
   const current = items.find((i) => i.id === selected?.id && i.kind === selected.kind);
   useEffect(() => {
     if (current) navigationTime.current = current.time;
@@ -259,9 +281,18 @@ export function InlineReview({
     );
   }
 
-  function commit(next: Project) {
+  function commit(next: Project, moveNext = false) {
     stop();
     useProjectStore.getState().commitTranscript(next, project);
+    if (moveNext)
+      advance.current = {
+        project: useProjectStore.getState().project,
+        ids: (index >= 0
+          ? queue.slice(index + 1)
+          : queue.filter((item) => item.time > (current?.time ?? 0))
+        ).map((item) => ({ kind: item.kind, id: item.id })),
+        time: current?.time ?? navigationTime.current,
+      };
   }
   function proposal() {
     if (!current) throw new Error("Select a surviving suggestion.");
@@ -374,7 +405,7 @@ export function InlineReview({
       );
       if (projectSession() !== captured) return;
       setScope(ranges);
-      setFilter("script");
+      setFilter("all");
       setSelected(null);
       setNotice(
         `${result.pending + result.offScript} new suggestions${selectedOnly ? " in selection" : ""}.`,
@@ -399,6 +430,10 @@ export function InlineReview({
     });
   }
   useAppCommands({
+    "review-log": () => {
+      stop();
+      setHistoryOpen(true);
+    },
     "review-script": () => {
       void find(false);
     },
@@ -485,6 +520,16 @@ export function InlineReview({
         >
           <summary>Options</summary>
           <div className="review-options-menu">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                stop();
+                setHistoryOpen(true);
+              }}
+            >
+              Review log…
+            </Button>
             <Button size="sm" variant="ghost" onClick={format}>
               Apply simple formatting
             </Button>
@@ -576,7 +621,9 @@ export function InlineReview({
                         <Button
                           size="sm"
                           onClick={() =>
-                            attempt(() => commit(scriptReviewAction(project, record.id, "accept")))
+                            attempt(() =>
+                              commit(scriptReviewAction(project, record.id, "accept"), true),
+                            )
                           }
                         >
                           Accept
@@ -586,7 +633,9 @@ export function InlineReview({
                         size="sm"
                         variant="ghost"
                         onClick={() =>
-                          attempt(() => commit(scriptReviewAction(project, record.id, "dismiss")))
+                          attempt(() =>
+                            commit(scriptReviewAction(project, record.id, "dismiss"), true),
+                          )
                         }
                       >
                         Dismiss
@@ -770,17 +819,23 @@ export function InlineReview({
                         commit(
                           record
                             ? replaceScriptReviewText(project, record.id, customText)
-                            : replaceTranscriptText(
-                                project,
-                                {
-                                  segmentId: current.filler!.segmentId,
-                                  blockId: current.filler!.blockId,
-                                  from: current.filler!.from,
-                                  to: current.filler!.to,
-                                  text: customText,
-                                },
-                                { author: "manual" },
+                            : logFillerReview(
+                                replaceTranscriptText(
+                                  project,
+                                  {
+                                    segmentId: current.filler!.segmentId,
+                                    blockId: current.filler!.blockId,
+                                    from: current.filler!.from,
+                                    to: current.filler!.to,
+                                    text: customText,
+                                  },
+                                  { author: "manual" },
+                                ),
+                                current.filler!,
+                                "replace",
+                                customText,
                               ),
+                          true,
                         );
                       })
                     }
@@ -831,6 +886,18 @@ export function InlineReview({
           </div>,
           document.body,
         )}
+      {historyOpen && (
+        <ReviewHistory
+          isComposing={isComposing}
+          onClose={() => setHistoryOpen(false)}
+          onReviewAgain={(kind, id) => {
+            setFilter("all");
+            setScope(undefined);
+            setSelected({ kind, id });
+            setPreview(null);
+          }}
+        />
+      )}
     </>
   );
 }

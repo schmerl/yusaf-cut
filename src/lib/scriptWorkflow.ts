@@ -175,19 +175,24 @@ export async function runScriptReconciliation(
       )!;
       const contextBefore = block.text.slice(Math.max(0, candidate.from - 48), candidate.from);
       const contextAfter = block.text.slice(candidate.to, candidate.to + 48);
-      const sameProposal = (record: ScriptReviewRecord) =>
+      const sameMapping = (record: ScriptReviewRecord) =>
         record.scriptRevision === revision &&
         record.mediaId === candidate.mediaId &&
         record.occurrenceLineage === candidate.occurrenceLineage &&
         JSON.stringify(record.anchorIds) === JSON.stringify(candidate.anchorIds) &&
         record.beforeText === candidate.beforeText &&
-        record.afterText === candidate.afterText &&
+        record.afterText === candidate.afterText;
+      const sameProposal = (record: ScriptReviewRecord) =>
+        sameMapping(record) &&
         record.contextBefore === contextBefore &&
         record.contextAfter === contextAfter;
       const prior = expected.scriptAssistance!.records.filter(sameProposal);
       if (
-        prior.some((record) =>
-          ["kept", "accepted", "reverted", "dismissed", "cut"].includes(record.status),
+        expected.scriptAssistance!.records.some(
+          (record) =>
+            sameMapping(record) &&
+            !record.historicalReason &&
+            ["kept", "accepted", "reverted", "dismissed", "cut"].includes(record.status),
         )
       )
         continue;

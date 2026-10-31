@@ -7,7 +7,7 @@ import type { TextRange } from "./transcriptEdits";
 import { parseScript, type ScriptPassage } from "./scriptMarkdown";
 import type { ScriptResultKind } from "./scriptAssistance";
 
-export const SCRIPT_MATCH_POLICY = "script-match-v2";
+export const SCRIPT_MATCH_POLICY = "script-match-v3";
 export function isVocalFillerOnly(text: string): boolean {
   const words = tokens(text);
   return (
@@ -209,7 +209,19 @@ export function* scriptCandidateBatches(
     const first = block.runs.indexOf(runs[0]!),
       last = block.runs.indexOf(runs.at(-1)!);
     const touched = block.runs.slice(first, last + 1); // Includes protected hidden runs.
-    const complete = touched.every((r) => r.from >= from && r.to <= to);
+    let complete = touched.every((r) => r.from >= from && r.to <= to);
+    if (
+      !complete &&
+      kind === "off-script" &&
+      touched.every((r) => r.anchorIds.length === 1) &&
+      /^[\s\p{P}]*$/u.test(block.text.slice(touched[0]!.from, from)) &&
+      /^[\s\p{P}]*$/u.test(block.text.slice(to, touched.at(-1)!.to))
+    ) {
+      from = touched[0]!.from;
+      to = touched.at(-1)!.to;
+      afterText = block.text.slice(from, to);
+      complete = true;
+    }
     const inScope =
       !scope ||
       touched.every((run) =>

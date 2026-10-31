@@ -1,3 +1,4 @@
+import { validateReviewLog } from "./reviewLog";
 /** Phase 1 foundations. Pure APIs; the legacy editor does not write overlays yet. */
 import { validateFillerReview } from "./fillerReview";
 import { validateScriptAssistance, type EditProvenance } from "./scriptAssistance";
@@ -181,6 +182,7 @@ export function validateProjectTranscripts(project: Project): void {
   requireValid(project.version === 1, "unsupported project version");
   validateFillerReview(project);
   validateScriptAssistance(project);
+  validateReviewLog(project);
   const occurrences = new Set<string>();
   const segments = new Set<string>();
   for (const segment of project.segments) {

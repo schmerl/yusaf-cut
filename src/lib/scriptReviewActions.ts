@@ -1,7 +1,8 @@
+import { logScriptReview } from "./reviewLog";
 import { v4 as uuid } from "uuid";
 import { reconcileFillerReview } from "./fillerReview";
 import { computeTimeline, type Project } from "./edl";
-import { locateScriptRecord, reconcileScriptReview } from "./scriptLifecycle";
+import { locateScriptRecord, reconcileScriptReview, rebaseReviewContexts } from "./scriptLifecycle";
 import { scriptRunProtected, isSimpleFormatting } from "./scriptMatching";
 import {
   reconcileTranscript,
@@ -94,18 +95,26 @@ export function scriptReviewAction(
       ),
     };
   }
-  return reconcileScriptReview(
-    updateRecord(
-      next,
-      id,
-      action === "accept"
-        ? "accepted"
-        : action === "dismiss"
-          ? "dismissed"
-          : action === "keep"
-            ? "kept"
-            : "reverted",
+  return logScriptReview(
+    reconcileScriptReview(
+      rebaseReviewContexts(
+        project,
+        updateRecord(
+          next,
+          id,
+          action === "accept"
+            ? "accepted"
+            : action === "dismiss"
+              ? "dismissed"
+              : action === "keep"
+                ? "kept"
+                : "reverted",
+        ),
+        id,
+      ),
     ),
+    record,
+    action === "accept" ? "accept" : action,
   );
 }
 
@@ -151,7 +160,8 @@ export function bulkScriptPunctuation(
     eligible.map((item) => item.edit),
     { author: "review" },
   );
-  for (const { record } of eligible) next = updateRecord(next, record.id, "accepted");
+  for (const { record } of eligible)
+    next = logScriptReview(updateRecord(next, record.id, "accepted"), record, "accept");
   return { project: reconcileScriptReview(next), count: eligible.length };
 }
 
@@ -212,7 +222,11 @@ export function buildOffScriptCut(
   const entry = computeTimeline(project).find((e) => e.segmentId === source.id)!;
   return {
     before: project,
-    result: reconcileScriptReview(updateRecord(next, record.id, "cut")),
+    result: logScriptReview(
+      reconcileScriptReview(updateRecord(next, record.id, "cut")),
+      { ...record, sourceIn: cutStart, sourceOut: cutEnd },
+      "cut",
+    ),
     cutStart,
     cutEnd,
     joinOutput: entry.outputStart + cutStart - source.sourceIn,
@@ -255,7 +269,65 @@ export function replaceScriptReviewText(project: Project, id: string, text: stri
       ),
     },
   };
-  const result = reconcileScriptReview(updated);
+  const result = reconcileScriptReview(rebaseReviewContexts(project, updated, id));
   validateProjectTranscripts(result);
-  return result;
+  return logScriptReview(result, record, "replace");
+}
+
+/** Revisit a resolved decision without restoring an unrelated project snapshot. */
+export function revisitScriptReview(project: Project, id: string, revert = false): Project {
+  const record = project.scriptAssistance?.records.find((r) => r.id === id);
+  const location = record && locateScriptRecord(project, record);
+  if (!record || !location)
+    throw new Error(
+      "This historical passage has changed or was cut. Use Undo or a saved snapshot for the original edit.",
+    );
+  if (revert) {
+    if (record.status !== "accepted")
+      throw new Error("Only an unchanged accepted replacement can be reverted here.");
+    const next = replaceTranscriptText(
+      project,
+      {
+        segmentId: location.block.segmentId,
+        blockId: location.block.id,
+        from: location.from,
+        to: location.to,
+        text: record.beforeText,
+      },
+      { author: "review", recordId: id },
+    );
+    return logScriptReview(
+      reconcileScriptReview(rebaseReviewContexts(project, updateRecord(next, id, "reverted"), id)),
+      record,
+      "revert",
+    );
+  }
+  if (!["dismissed", "kept", "reverted"].includes(record.status))
+    throw new Error("This decision cannot be reopened. Revert accepted text first if needed.");
+  const status =
+    record.kind === "off-script"
+      ? "off-script"
+      : record.status === "kept"
+        ? "applied"
+        : "suggested";
+  const next = updateRecord(project, id, status);
+  const reopened = {
+    ...next,
+    scriptAssistance: {
+      ...next.scriptAssistance!,
+      records: next.scriptAssistance!.records.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              contextBefore: location.block.text.slice(
+                Math.max(0, location.from - 48),
+                location.from,
+              ),
+              contextAfter: location.block.text.slice(location.to, location.to + 48),
+            }
+          : r,
+      ),
+    },
+  };
+  return logScriptReview(reopened, record, "reopen");
 }

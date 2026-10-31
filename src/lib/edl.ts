@@ -17,6 +17,7 @@ import { reconcileFillerReview, type FillerReviewMetadata } from "./fillerReview
 import { reconcileScriptReview } from "./scriptLifecycle";
 import type { FillerAudio } from "./fillerActions";
 import type { TranscriptMetadata } from "./transcript";
+import type { ReviewLog } from "./reviewLog";
 import type { ScriptAssistance } from "./scriptAssistance";
 
 export type MediaId = string;
@@ -107,6 +108,7 @@ export interface Project {
   settings: ProjectSettings;
   fillerReview?: FillerReviewMetadata;
   scriptAssistance?: ScriptAssistance;
+  reviewLog?: ReviewLog;
   /** Optional — older v2.0 projects don't have this field. Empty by default. */
   chapters?: Chapter[];
   /** Optional — music beds / sfx mixed under the main EDL. Empty by default. */

@@ -33,6 +33,11 @@ off-script cuts use precise anchor bounds plus optional silence buffers. Followi
 text remains present across segment splits. See the focused walkthrough before
 continuing automatic eligibility/evaluation work.
 
+Current checkpoint `4.8.0-dev.6` adds the combined advancing review chain,
+persistent script/filler decision log with guarded revisit/revert, and complete
+original-word restart markers. The current human script covers these changes;
+automatic acoustic eligibility/application and held-out acceptance remain unfinished.
+
 ## Outcome and delivery order
 
 Import a Markdown teleprompter script, reconcile the whole edited transcript or

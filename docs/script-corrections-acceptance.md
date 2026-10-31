@@ -46,3 +46,10 @@ word cut with its following text/captions preserved, adjustable off-script buffe
 and hidden-neighbor rejection. These checks supplement SC-05/08/09/11/12; they do
 not establish audible joins or automatic acoustic eligibility. Re-run Find
 differences in the updated build before the focused human checks.
+
+Workflow `4.8.0-dev.6` adds combined script/filler advancement, context-preserving
+explicit review edits, durable decision-log TS/Rust fixtures and save/snapshot
+round trips, guarded revisit/revert, filler cut logging and latest Undo, plus the
+hyphenated restart regression. Cut history entries record actual buffered source
+spans. Native navigation/focus and audible joins still require the current script.
+Automatic acoustic requirements remain unaccepted.

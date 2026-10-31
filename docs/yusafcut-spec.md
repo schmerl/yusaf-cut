@@ -674,3 +674,11 @@ custom text/dismissal options. Popovers allow user-entered text changes without
 cutting audio. Off-script cuts use selected source bounds with optional silence
 buffers; they preserve neighboring words/captions and show duration and following
 text before commit. A cut can split a displayed paragraph into retained fragments.
+
+Accept, Dismiss and saved custom wording advance through the combined unreviewed
+script/filler chain by default; filters and passage scope remain explicit. A saved
+Review log exposes before/after wording, decisions, times and source ranges. Users
+can locate surviving text, reopen decisions, revert unchanged accepted text, or
+undo the latest review action when applicable. Restoring cut audio requires Undo
+or existing snapshots. Original-word punctuation belongs to its off-script range;
+this does not permit arbitrary partial timing-group cuts.

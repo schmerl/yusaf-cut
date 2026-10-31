@@ -7,6 +7,7 @@ export function locateScriptRecord(
   project: Project,
   record: ScriptReviewRecord,
   blocks = projectTranscript(project),
+  checkContext = true,
 ) {
   if (record.historicalReason || record.status === "cut") return null;
   const matches: { block: ProjectedBlock; from: number; to: number }[] = [];
@@ -39,6 +40,7 @@ export function locateScriptRecord(
     )
       continue;
     if (
+      checkContext &&
       ["suggested", "off-script"].includes(record.status) &&
       (block.text.slice(Math.max(0, from - 48), from) !== record.contextBefore ||
         block.text.slice(to, to + 48) !== record.contextAfter)
@@ -79,4 +81,39 @@ export function reconcileScriptReview(project: Project): Project {
     };
   });
   return changed ? { ...project, scriptAssistance: { ...metadata, records } } : project;
+}
+
+/** Only explicit review text edits may rebase unchanged neighboring proposals. */
+export function rebaseReviewContexts(before: Project, next: Project, changedId: string): Project {
+  if (!next.scriptAssistance) return next;
+  const blocks = projectTranscript({
+    ...next,
+    scriptAssistance: undefined,
+    fillerReview: undefined,
+  });
+  const originals = new Map(before.scriptAssistance?.records.map((r) => [r.id, r]));
+  return {
+    ...next,
+    scriptAssistance: {
+      ...next.scriptAssistance,
+      records: next.scriptAssistance.records.map((record) => {
+        const original = originals.get(record.id);
+        if (
+          !original ||
+          original.id === changedId ||
+          original.historicalReason ||
+          !["suggested", "off-script"].includes(original.status)
+        )
+          return record;
+        const location = locateScriptRecord(next, original, blocks, false);
+        if (!location) return record;
+        return {
+          ...record,
+          historicalReason: undefined,
+          contextBefore: location.block.text.slice(Math.max(0, location.from - 48), location.from),
+          contextAfter: location.block.text.slice(location.to, location.to + 48),
+        };
+      }),
+    },
+  };
 }
