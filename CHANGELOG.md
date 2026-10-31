@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Known issues reported during development
+- Exported captions reportedly retain HDTP/Jason despite HTTP/JSON transcript
+  corrections, and produce unnecessary single-word lines. Recorded for a separate
+  export investigation in `docs/export-caption-bugs.md`; not fixed yet.
+
 ### Development
 - Preserve untouched script suggestions when a filler/off-script cut splits their
   paragraph. Rebase context only for exact surviving anchors/text/timing in the

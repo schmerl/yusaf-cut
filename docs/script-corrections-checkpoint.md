@@ -6,6 +6,12 @@ Undo/Redo, lost transcript position after cutting, and an Undo → Keep error. T
 checkpoint addresses that workflow. **The complete automatic correction feature
 is still unfinished; automatic wording changes remain disabled.**
 
+User checkpoint, 2026-10-31: this workflow is good enough to continue working.
+Implementation is checked in at `1816e01`. Two caption-export issues are deferred
+to another thread; see [caption export bug handoff](export-caption-bugs.md).
+They have been recorded, not fixed. The review steps below remain available as
+regression instructions rather than a request to repeat the whole walkthrough now.
+
 ## Current review — neighboring suggestions and automatic filler timing
 
 Allow about three minutes. Use the existing disposable project, and quit/reopen
