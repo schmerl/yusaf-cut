@@ -8,6 +8,8 @@ Implementation checkpoint: `1816e01` on
 The working tree was clean and the implementation already committed before these
 bugs were recorded. Automatic wording application remains outside this checkpoint.
 
+Tracked in [GitHub issue #17](https://github.com/schmerl/yusaf-cut/issues/17) in this fork.
+
 ## CAP-01 — Exported captions do not reflect transcript corrections
 
 User report: in **Review fixes (disposable).mp4**, exported captions show **HDTP**
