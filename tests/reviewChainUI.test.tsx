@@ -1,6 +1,6 @@
 import { fillerCandidates } from "@/lib/fillerReview";
 import { buildFillerCutProposal, removeFillerText, replaceFillerText } from "@/lib/fillerActions";
-import { buildOffScriptCut } from "@/lib/scriptReviewActions";
+import { buildOffScriptCut, scriptReviewAction } from "@/lib/scriptReviewActions";
 import { locateScriptRecord } from "@/lib/scriptLifecycle";
 import { estimateFillerBoundaries } from "@/lib/ipc";
 import * as ipc from "@/lib/ipc";
@@ -110,6 +110,45 @@ it("does not advance when a decision fails to commit", async () => {
   expect(popup().getByText("bad")).toBeTruthy();
   expect(popup().getByRole("alert")).toHaveTextContent("stale project");
   await act(async () => {});
+});
+it.each(["Keep speech", "Cut speech"])("%s advances an off-script decision", async (action) => {
+  const original = useProjectStore.getState().project;
+  replaceProjectBaseline({
+    ...original,
+    scriptAssistance: {
+      ...original.scriptAssistance!,
+      records: original.scriptAssistance!.records.map((record) =>
+        record.id === "first"
+          ? { ...record, kind: "off-script", status: "off-script", afterText: record.beforeText }
+          : record,
+      ),
+    },
+  });
+  render(<TranscriptEditor />);
+  clickMarker("first");
+  fireEvent.click(popup().getByRole("button", { name: action }));
+  expect(popup().getByText("[UH]")).toBeTruthy();
+  expect(popup().queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
+});
+it.each(["Keep", "Revert"])("%s advances an applied correction", async (action) => {
+  const original = useProjectStore.getState().project;
+  const accepted = scriptReviewAction(original, "first", "accept");
+  replaceProjectBaseline({
+    ...accepted,
+    scriptAssistance: {
+      ...accepted.scriptAssistance!,
+      records: accepted.scriptAssistance!.records.map((record) =>
+        record.id === "first" ? { ...record, status: "applied" } : record,
+      ),
+    },
+  });
+  render(<TranscriptEditor />);
+  clickMarker("first");
+  fireEvent.click(popup().getByRole("button", { name: action }));
+  expect(popup().getByText("[UH]")).toBeTruthy();
+  expect(popup().queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
 });
 it("Accept advances through fillers and preserves the adjacent unchanged suggestion; Dismiss advances too", async () => {
   render(<TranscriptEditor />);

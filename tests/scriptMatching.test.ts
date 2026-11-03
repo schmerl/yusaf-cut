@@ -36,6 +36,36 @@ async function fixture(text: string, script: string, repeated = false): Promise<
   return replaceStoredScript(p, await prepareScript(script, "synthetic.md"));
 }
 describe("pure script matching and scope", () => {
+  it.each(["’", "‘", "ʼ", "＇"])(
+    "ignores %s versus straight apostrophes in either direction",
+    async (apostrophe) => {
+      const straight = "We don't change the user's or users' wording here.";
+      const styled = straight.replaceAll("'", apostrophe);
+      for (const [spoken, written] of [
+        [straight, styled],
+        [styled, straight],
+      ]) {
+        const p = await fixture(spoken!, written!);
+        const before = structuredClone(p);
+        expect(scriptCandidates(p)).toEqual([]);
+        expect(p).toEqual(before);
+      }
+    },
+  );
+  it("still proposes punctuation and wording changes alongside apostrophe differences", async () => {
+    const p = await fixture("We don't use the old server", "We don’t use the new server.");
+    expect(scriptCandidates(p)).toContainEqual(
+      expect.objectContaining({ kind: "wording", beforeText: "old", afterText: "new" }),
+    );
+    const formatted = await fixture("We don't use this server", "We don’t use this server.");
+    expect(scriptCandidates(formatted)).toEqual([
+      expect.objectContaining({ kind: "punctuation", beforeText: "server", afterText: "server." }),
+    ]);
+    const missing = await fixture("We dont use this server.", "We don’t use this server.");
+    expect(scriptCandidates(missing)).toContainEqual(
+      expect.objectContaining({ kind: "wording", beforeText: "dont", afterText: "don’t" }),
+    );
+  });
   it("flags a truncated restart including the hyphen as one complete timed word", async () => {
     const p = await fixture(
       "The editor generates docu- documentation for this example.",

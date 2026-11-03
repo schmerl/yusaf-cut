@@ -245,6 +245,7 @@ describe("inline transcript review", () => {
     // Native menu history does not move focus or dismiss the popover.
     act(() => useProjectStore.temporal.getState().undo());
     expect(useProjectStore.getState().project).toBe(before);
+    marker(".is-script-off-script");
     fireEvent.click(popover.getByRole("button", { name: "Keep speech" }));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(

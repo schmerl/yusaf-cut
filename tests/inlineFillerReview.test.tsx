@@ -20,14 +20,12 @@ beforeEach(() => {
     })),
   );
   replaceProjectBaseline(p);
-  vi.mocked(estimateFillerBoundaries)
-    .mockReset()
-    .mockResolvedValue({
-      start: null,
-      end: null,
-      reason: "Synthetic uncertain bounds",
-      limitedByNeighbor: false,
-    });
+  vi.mocked(estimateFillerBoundaries).mockReset().mockResolvedValue({
+    start: null,
+    end: null,
+    reason: "Synthetic uncertain bounds",
+    limitedByNeighbor: false,
+  });
 });
 afterEach(() => {
   cleanup();
@@ -51,11 +49,12 @@ it("clicks a filler in place, previews and commits the same cut, then Undo → K
   fireEvent.click(popup().getByRole("button", { name: "Cut speech" }));
   expect(useProjectStore.getState().project).toBe(preview);
   expect(totalDuration(preview)).toBeLessThan(totalDuration(before));
+  expect(popup().getByText("[UH]")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+  await open();
   fireEvent.click(popup().getByRole("button", { name: "Keep speech" }));
   expect(totalDuration(useProjectStore.getState().project)).toBe(totalDuration(before));
   expect(screen.queryByRole("alert")).toBeNull();
-  fireEvent.click(popup().getByRole("button", { name: "Next" }));
   expect(popup().getByText("[UH]")).toBeTruthy();
   await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
 });
@@ -69,6 +68,8 @@ it("offers text-only removal on demand without changing duration", async () => {
     "[UM]",
   );
   expect(totalDuration(useProjectStore.getState().project)).toBe(duration);
+  expect(popup().getByText("[UH]")).toBeTruthy();
+  await waitFor(() => expect(popup().getByRole("button", { name: "Preview cut" })).toBeEnabled());
 });
 it("ignores an automatic boundary estimate arriving after navigation to a different filler", async () => {
   const resolve: ((value: Awaited<ReturnType<typeof estimateFillerBoundaries>>) => void)[] = [];

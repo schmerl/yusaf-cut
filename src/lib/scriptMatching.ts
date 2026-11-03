@@ -7,7 +7,12 @@ import type { TextRange } from "./transcriptEdits";
 import { parseScript, type ScriptPassage } from "./scriptMarkdown";
 import type { ScriptResultKind } from "./scriptAssistance";
 
-export const SCRIPT_MATCH_POLICY = "script-match-v3";
+export const SCRIPT_MATCH_POLICY = "script-match-v4";
+
+// Compare apostrophe styles without changing displayed text or UTF-16 offsets.
+function normalizeApostrophes(text: string): string {
+  return text.replace(/[‘’ʼ＇]/gu, "'");
+}
 export function isVocalFillerOnly(text: string): boolean {
   const words = tokens(text);
   return (
@@ -58,11 +63,14 @@ export interface ScriptCandidate extends TextRange {
 }
 
 function tokens(text: string): Token[] {
-  return Array.from(text.matchAll(/[\p{L}\p{M}\p{N}_]+(?:['’][\p{L}\p{M}\p{N}_]+)*/gu), (m) => ({
-    value: m[0].toLocaleLowerCase("en-US").replaceAll("’", "'"),
-    from: m.index!,
-    to: m.index! + m[0].length,
-  }));
+  return Array.from(
+    normalizeApostrophes(text).matchAll(/[\p{L}\p{M}\p{N}_]+(?:['’][\p{L}\p{M}\p{N}_]+)*/gu),
+    (m) => ({
+      value: m[0].toLocaleLowerCase("en-US"),
+      from: m.index!,
+      to: m.index! + m[0].length,
+    }),
+  );
 }
 export function scriptRunProtected(run: ProjectedRun): boolean {
   if (run.provenance) return run.provenance.author !== "script";
@@ -422,7 +430,11 @@ export function* scriptCandidateBatches(
             const suffix = end < written.length - 1 ? /^[^\s]*/u.exec(following)![0] : following;
             const formatted =
               prefix + proposed.slice(written[start]!.from, written[end]!.to) + suffix;
-            if (formatted === run.text || !sameSpokenWords(run.text, formatted)) continue;
+            if (
+              normalizeApostrophes(formatted) === normalizeApostrophes(run.text) ||
+              !sameSpokenWords(run.text, formatted)
+            )
+              continue;
             const simple = isSimpleFormatting(run.text, formatted) && sentenceStart && sentenceEnd;
             add(
               block,

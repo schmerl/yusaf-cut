@@ -674,7 +674,9 @@ export function InlineReview({
                       <Button
                         size="sm"
                         onClick={() =>
-                          attempt(() => commit(scriptReviewAction(project, record.id, "keep")))
+                          attempt(() =>
+                            commit(scriptReviewAction(project, record.id, "keep"), true),
+                          )
                         }
                       >
                         Keep
@@ -683,7 +685,9 @@ export function InlineReview({
                         size="sm"
                         variant="outline"
                         onClick={() =>
-                          attempt(() => commit(scriptReviewAction(project, record.id, "revert")))
+                          attempt(() =>
+                            commit(scriptReviewAction(project, record.id, "revert"), true),
+                          )
                         }
                       >
                         Revert
@@ -711,7 +715,7 @@ export function InlineReview({
                         onClick={() =>
                           attempt(() => {
                             const value = preview?.before === project ? preview : proposal();
-                            commit(value.result);
+                            commit(value.result, true);
                           })
                         }
                       >
@@ -726,6 +730,7 @@ export function InlineReview({
                               current.filler
                                 ? setFillerDecision(project, current.filler, "kept")
                                 : scriptReviewAction(project, current.id, "keep"),
+                              true,
                             ),
                           )
                         }
@@ -798,7 +803,7 @@ export function InlineReview({
                         size="sm"
                         variant="ghost"
                         onClick={() =>
-                          attempt(() => commit(removeFillerText(project, current.filler!)))
+                          attempt(() => commit(removeFillerText(project, current.filler!), true))
                         }
                       >
                         Remove text only

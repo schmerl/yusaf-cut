@@ -6,6 +6,7 @@ import { addMediaWithTranscript, newProject, computeTimeline, type Project } fro
 import { prepareScript, replaceStoredScript } from "@/lib/scriptAssistance";
 import { createScriptRun, runScriptReconciliation } from "@/lib/scriptWorkflow";
 import { scriptReviewAction } from "@/lib/scriptReviewActions";
+import { SCRIPT_MATCH_POLICY } from "@/lib/scriptMatching";
 import { projectTranscript } from "@/lib/transcript";
 import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import type { ScriptAudioEvidence, ScriptAudioWindow } from "@/lib/ipc";
@@ -70,15 +71,13 @@ describe("staged audio reconciliation", () => {
       addMediaWithTranscript(
         newProject("Neighbor decisions"),
         { ...original.media.m1, duration: 20 },
-        "Alpha bad middle wrong finish."
-          .split(" ")
-          .map((text, i) => ({
-            id: `word-${i}`,
-            text,
-            start: i * 0.5,
-            end: i * 0.5 + 0.3,
-            confidence: 1,
-          })),
+        "Alpha bad middle wrong finish.".split(" ").map((text, i) => ({
+          id: `word-${i}`,
+          text,
+          start: i * 0.5,
+          end: i * 0.5 + 0.3,
+          confidence: 1,
+        })),
       ),
       await prepareScript("Alpha good middle correct finish.", "synthetic.md"),
     );
@@ -166,7 +165,7 @@ describe("staged audio reconciliation", () => {
     expect(
       records.filter((r) => r.id.startsWith("legacy:")).every((r) => !!r.historicalReason),
     ).toBe(true);
-    expect(records.some((r) => !r.historicalReason && r.policy === "script-match-v3")).toBe(true);
+    expect(records.some((r) => !r.historicalReason && r.policy === SCRIPT_MATCH_POLICY)).toBe(true);
   });
   it("retains valid audio evidence when subsequently finding text differences", async () => {
     await setup();
