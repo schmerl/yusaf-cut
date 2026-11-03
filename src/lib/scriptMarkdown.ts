@@ -14,6 +14,8 @@ export interface ScriptPassage {
   to: number;
   text: string;
   section: string[];
+  /** Source offset of the enclosing heading; distinguishes repeated titles. */
+  sectionFrom: number;
   ambiguous: boolean;
 }
 export interface ParsedScript {
@@ -181,6 +183,7 @@ export function parseScript(markdown: string): ParsedScript {
   const passages: ScriptPassage[] = [];
   const section: { level: number; text: string }[] = [];
   let heading = 0;
+  let sectionFrom = -1;
   for (const token of tokens) {
     if (token.type === "heading_open") heading = Number(token.tag.slice(1));
     if (token.type === "heading_close") heading = 0;
@@ -196,6 +199,7 @@ export function parseScript(markdown: string): ParsedScript {
       .join("")
       .trim();
     if (heading) {
+      sectionFrom = offset(token.map?.[0] ?? 0);
       while (section.length && section.at(-1)!.level >= heading) section.pop();
       section.push({ level: heading, text });
       continue;
@@ -208,6 +212,7 @@ export function parseScript(markdown: string): ParsedScript {
       to,
       text,
       section: section.map((s) => s.text),
+      sectionFrom,
       ambiguous: issues.some((i) => i.from < to && i.to > from),
     });
   }

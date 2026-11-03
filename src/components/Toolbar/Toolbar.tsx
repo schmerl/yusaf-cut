@@ -65,7 +65,7 @@ import {
   newProject,
   totalDuration,
 } from "@/lib/edl";
-import { buildSrt, buildVtt } from "@/lib/captions";
+import { buildSrt, buildVtt, buildUntimedTranscript } from "@/lib/captions";
 import { usePlayerStore } from "@/stores/playerStore";
 import { Toolbox } from "@/components/Toolbox/Toolbox";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
@@ -686,6 +686,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   // Captions reflect the *output* timeline, so deletes and clip reordering
   // carry over to the .srt/.vtt without the user having to think about it.
   const handleExportCaptions = useCallback(async () => {
+    const session = projectSession();
     const hasWords = project.segments.some((s) => s.words.length > 0);
     if (!hasWords) {
       pushToast({
@@ -700,15 +701,23 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       filters: [
         { name: "SubRip subtitles", extensions: ["srt"] },
         { name: "WebVTT captions", extensions: ["vtt"] },
+        { name: "YouTube transcript (without timing)", extensions: ["txt"] },
       ],
     });
     if (!outPath) return;
     const isVtt = outPath.toLowerCase().endsWith(".vtt");
+    const isTxt = outPath.toLowerCase().endsWith(".txt");
     try {
-      const content = isVtt ? buildVtt(project) : buildSrt(project);
+      if (projectSession() !== session) {
+        throw new Error("The project changed. Export captions again from the current project.");
+      }
+      // Corrections may finish while the native save dialog is open. Read the
+      // current revision at serialization time, not the render's older snapshot.
+      const current = useProjectStore.getState().project;
+      const content = isTxt ? buildUntimedTranscript(current) : isVtt ? buildVtt(current) : buildSrt(current);
       await writeTextFile(outPath, content);
       pushToast({
-        title: isVtt ? "WebVTT exported" : "SRT exported",
+        title: isTxt ? "Untimed transcript exported" : isVtt ? "WebVTT exported" : "SRT exported",
         description: outPath,
       });
     } catch (err) {
@@ -777,7 +786,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             variant="ghost"
             onClick={handleExportCaptions}
             className="h-8 gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
-            title="Export captions (.srt or .vtt)"
+            title="Export captions (.srt, .vtt or untimed .txt)"
           >
             <Captions className="h-4 w-4" /> Captions
           </Button>

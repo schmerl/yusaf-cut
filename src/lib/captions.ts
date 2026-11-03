@@ -3,23 +3,20 @@
  * (so deleted ranges and re-ordered segments are reflected exactly the way
  * they will play back in the exported video).
  *
- * Words are grouped into cues by:
- *  - a gap heuristic: any silence > GAP_S between consecutive words starts a
- *    new cue;
- *  - a length cap: cues are split when they would exceed MAX_CUE_S of speech
- *    or MAX_CUE_WORDS words.
- *
- * The grouping is deliberately conservative — punctuation-aware sentence splits
- * would need an NLP pass; this version produces broadcast-style readable cues
- * that map cleanly to the editor's word boundaries.
+ * Slide transitions and long silences delimit passages. Within each passage, choose balanced cues under the
+ * duration/word limits, preferring sentence boundaries and avoiding short tails.
+ * Edited runs remain indivisible: their anchors time the entire replacement,
+ * rather than supplying invented timings for individual replacement words.
  */
 
 import { type Project, type Word } from "./edl";
 import { projectTranscript } from "./transcript";
+import { captionSectionStarts } from "./captionSections";
 
-const GAP_S = 0.7;
-const MAX_CUE_S = 5;
-const MAX_CUE_WORDS = 14;
+const GAP_S = 2;
+const MAX_CUE_S = 7;
+const MAX_CUE_WORDS = 20;
+const MAX_CUE_CHARS = 84;
 
 export interface CaptionCue {
   /** 1-based index, matches the cue numbering in .srt. */
@@ -73,42 +70,130 @@ export function buildCues(project: Project): CaptionCue[] {
   const words = flattenWordsInOutputTime(project);
   if (words.length === 0) return [];
 
-  const cues: CaptionCue[] = [];
-  let currentWords: OutputWord[] = [words[0]!];
+  const slides = captionSectionStarts(project, words);
+  const groups: OutputWord[][] = [];
+  let passage: OutputWord[] = [];
+  for (const [i, word] of words.entries()) {
+    const previous = passage[passage.length - 1];
+    if (previous && (slides.has(i) || word.start - previous.end >= GAP_S)) {
+      groups.push(...balancePassage(passage));
+      passage = [];
+    }
+    passage.push(word);
+  }
+  groups.push(...balancePassage(passage));
+  return groups.map((group, i) => makeCue(i + 1, group));
+}
 
-  for (let i = 1; i < words.length; i++) {
-    const prev = words[i - 1]!;
-    const cur = words[i]!;
-    const gap = cur.start - prev.end;
-    const cueDuration = prev.end - currentWords[0]!.start;
-    const tooLong = cueDuration >= MAX_CUE_S;
-    const tooWordy = currentWords.length >= MAX_CUE_WORDS;
-    const bigGap = gap >= GAP_S;
-    const sentenceEnd = /[.!?]$/.test(prev.word.text.trim());
-
-    if (bigGap || tooLong || tooWordy || (sentenceEnd && cueDuration > 1.2)) {
-      cues.push(makeCue(cues.length + 1, currentWords));
-      currentWords = [cur];
-    } else {
-      currentWords.push(cur);
+/** Minimize fragmentation across a whole passage instead of greedily leaving
+ * the last word of a sentence alone when a cue reaches its size limit. */
+function balancePassage(words: OutputWord[]): OutputWord[][] {
+  const costs = Array<number>(words.length + 1).fill(Infinity);
+  const next = Array<number>(words.length).fill(0);
+  costs[words.length] = 0;
+  for (let from = words.length - 1; from >= 0; from--) {
+    for (let to = from + 1; to <= words.length; to++) {
+      const duration = words[to - 1]!.end - words[from]!.start;
+      const text = cueText(words.slice(from, to));
+      const count = text.split(/\s+/u).length;
+      // A single edited timing group may exceed the limits. Export it intact.
+      if (
+        to > from + 1 &&
+        (duration > MAX_CUE_S || count > MAX_CUE_WORDS || text.length > MAX_CUE_CHARS)
+      )
+        break;
+      // Adjacent runs can spell one word (e.g. a manual removal of a space).
+      if (to < words.length && !words[to]!.separatorBefore) continue;
+      const sentenceEnd = /[.!?]["'”’)]*$/u.test(words[to - 1]!.word.text.trim());
+      // Base cost favors fewer cues; squared spare capacity balances them.
+      // Penalize single words and sub-1.2s flashes more than sentence splits.
+      const cost =
+        4 +
+        Math.pow(Math.max(0, MAX_CUE_S - duration) / MAX_CUE_S, 2) +
+        Math.pow(Math.max(0, MAX_CUE_WORDS - count) / MAX_CUE_WORDS, 2) +
+        (count === 1 ? 25 : 0) +
+        4 * Math.max(0, 1.2 - duration) +
+        Math.max(0, text.length / 20 - duration) * 3 +
+        (sentenceEnd ? 0 : 2) +
+        // Ordinary pauses favor a boundary without forcing orphaned phrases.
+        (to < words.length && words[to]!.start - words[to - 1]!.end >= 0.7 ? 0 : 1) +
+        costs[to]!;
+      if (cost < costs[from]!) {
+        costs[from] = cost;
+        next[from] = to;
+      }
+    }
+    // A joined word can span several runs: never split it or drop its text,
+    // even if that word alone exceeds a limit.
+    if (!next[from]) {
+      let to = from + 1;
+      while (to < words.length && !words[to]!.separatorBefore) to++;
+      next[from] = to;
+      costs[from] = 35 + costs[to]!;
     }
   }
-  cues.push(makeCue(cues.length + 1, currentWords));
-  return cues;
+  const groups: OutputWord[][] = [];
+  for (let from = 0; from < words.length; from = next[from]!) {
+    groups.push(words.slice(from, next[from]!));
+  }
+  return groups;
+}
+
+function cueText(words: OutputWord[]): string {
+  return words
+    .map((w, i) => (i ? w.separatorBefore : "") + w.word.text)
+    .join("")
+    .replace(/\s+([.,!?;:])/g, "$1")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function makeCue(index: number, words: OutputWord[]): CaptionCue {
-  const text = words
-    .map((w, i) => (i ? w.separatorBefore : "") + w.word.text)
-    .join("")
-    .replace(/\s+([.,!?;:])/g, "$1") // tighten punctuation
-    .trim();
   return {
     index,
     start: words[0]!.start,
     end: words[words.length - 1]!.end,
-    text,
+    text: wrapCaption(cueText(words)),
   };
+}
+
+/** Two balanced display lines, preferably at punctuation. Never strand a
+ * single word on a line when a two-word alternative fits. */
+function wrapCaption(text: string): string {
+  if (text.length <= 42) return text;
+  const words = text.split(" ");
+  let best = text;
+  let score = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const left = words.slice(0, i).join(" "),
+      right = words.slice(i).join(" ");
+    const cost =
+      Math.abs(left.length - right.length) +
+      10 * (Math.max(0, left.length - 42) + Math.max(0, right.length - 42)) +
+      (i === 1 || i === words.length - 1 ? 50 : 0) +
+      (/[.,!?;:]$/u.test(left) ? 0 : 4);
+    if (cost < score) {
+      score = cost;
+      best = left + "\n" + right;
+    }
+  }
+  return best;
+}
+
+/** Untimed YouTube transcript: only confident slide transitions insert blank
+ * lines. Editor paragraphs, pauses and caption-size limits do not carry over. */
+export function buildUntimedTranscript(project: Project): string {
+  const words = flattenWordsInOutputTime(project);
+  const slides = captionSectionStarts(project, words);
+  const sections: string[] = [];
+  let start = 0;
+  for (let i = 1; i < words.length; i++) {
+    if (!slides.has(i)) continue;
+    sections.push(cueText(words.slice(start, i)));
+    start = i;
+  }
+  if (words.length) sections.push(cueText(words.slice(start)));
+  return sections.length ? sections.join("\n\n") + "\n" : "";
 }
 
 // ── Formatters ─────────────────────────────────────────────────────────────
