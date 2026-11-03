@@ -1,3 +1,4 @@
+import { dispatchCommand } from "@/lib/appCommands";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -271,7 +272,7 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
             <Scissors className="h-4 w-4 mr-2" />
             Trim silences
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => useUIStore.getState().setFillerReviewOpen(true)} disabled={!hasWords}>
+          <DropdownMenuItem onClick={() => dispatchCommand("review-fillers")} disabled={!hasWords}>
             <MessageSquareOff className="h-4 w-4 mr-2" />
             Review fillers
           </DropdownMenuItem>

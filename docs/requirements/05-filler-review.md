@@ -7,6 +7,22 @@ export listening checks remain pending. Start with the
 
 Agent handoff: [detailed implementation plan](../plans/05-filler-review.md).
 
+## Approved workflow revision (2026-10-30)
+
+Filler decisions now share inline transcript popovers with script corrections.
+Native Review → Review Fillers and compact previous/next/category controls replace
+the persistent side panel. Click an amber phrase for Play, Preview cut, Cut speech
+or Keep. Detailed detection/timing controls remain on demand in a dialog; filler
+matching, explicit cut approval, boundary guards and persistence requirements are
+unchanged. Cuts preserve transcript position, and Undo → Keep works immediately.
+Use the [current workflow checkpoint](../script-corrections-checkpoint.md) first.
+
+On 2026-10-31 the user requested automatic audio-boundary estimation on entering a
+filler. Inline review estimates each eligible selected occurrence without making
+an edit; previews, manual offsets and explicit Cut remain required decisions.
+Pending estimates cannot overwrite a different occurrence or manual timing. Filler
+cuts must retain independent surviving script suggestions in the same paragraph.
+
 ## Confirmed decisions (2026-10-29)
 
 - Highlight vocal fillers by default, including CrisperWhisper bracketed forms

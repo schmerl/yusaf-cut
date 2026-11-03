@@ -12,6 +12,15 @@ cloud upload, no telemetry, and no API keys.
 The project is built with Tauri, React, TypeScript, Rust, whisper.cpp, and
 FFmpeg. It currently targets Apple Silicon Macs.
 
+The development branch supports opening a recording with an optional Markdown
+script, native macOS menus, and inline correction/filler review. Click a marked
+phrase for replacement or cut options, with before → replacement hover context, editable wording and cut buffers. Accept/Dismiss advances through the combined review queue; a saved Review log lets
+you revisit decisions. Entering a filler automatically estimates its cut boundaries;
+cutting it preserves untouched nearby correction suggestions. Text suggestions appear without waiting
+for a second transcription; audio checking is optional. Automatic wording
+correction remains disabled pending acoustic evaluation.
+See the [native review checkpoint](docs/script-corrections-checkpoint.md).
+
 ## ❤️ Sponsor YusafCut
 
 If YusafCut helps you, consider supporting the project:

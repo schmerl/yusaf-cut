@@ -1,5 +1,7 @@
+import { validateReviewLog } from "./reviewLog";
 /** Phase 1 foundations. Pure APIs; the legacy editor does not write overlays yet. */
 import { validateFillerReview } from "./fillerReview";
+import { validateScriptAssistance, type EditProvenance } from "./scriptAssistance";
 import { computeTimeline, type Project, type Segment, type Word } from "./edl";
 
 export interface TranscriptRun {
@@ -8,6 +10,7 @@ export interface TranscriptRun {
   /** Explicit spacing, retained for later inline editing; ignored for hidden runs. */
   separatorBefore: string;
   anchorIds: string[];
+  provenance?: EditProvenance;
 }
 
 export interface TranscriptBlock {
@@ -28,6 +31,7 @@ export interface ProjectedRun {
   text: string;
   originalText: string;
   anchorIds: string[];
+  provenance?: EditProvenance;
   /** UTF-16 offsets within the block's displayed text, end exclusive. */
   from: number;
   to: number;
@@ -139,6 +143,19 @@ export function validateTranscript(
         "duplicate/empty run ID",
       );
       ids.add(run.id);
+      if (run.provenance) {
+        requireValid(
+          ["manual", "script", "review"].includes(run.provenance.author),
+          "unsupported edit author",
+        );
+        requireValid(
+          run.provenance.recordId === undefined ||
+            (typeof run.provenance.recordId === "string" &&
+              run.provenance.recordId.length > 0 &&
+              run.provenance.recordId.length <= 128),
+          "invalid provenance record",
+        );
+      }
       requireValid(
         typeof run.text === "string" &&
           typeof run.separatorBefore === "string" &&
@@ -164,6 +181,8 @@ export function validateTranscript(
 export function validateProjectTranscripts(project: Project): void {
   requireValid(project.version === 1, "unsupported project version");
   validateFillerReview(project);
+  validateScriptAssistance(project);
+  validateReviewLog(project);
   const occurrences = new Set<string>();
   const segments = new Set<string>();
   for (const segment of project.segments) {
@@ -220,6 +239,7 @@ export function projectTranscript(project: Project): ProjectedBlock[] {
           text: run.text,
           originalText: anchors.map((w) => w.text).join(" "),
           anchorIds: [...run.anchorIds],
+          ...(run.provenance ? { provenance: run.provenance } : {}),
           from,
           to: text.length,
           sourceStart,

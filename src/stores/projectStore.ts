@@ -9,6 +9,7 @@
  */
 
 import { reconcileFillerReview } from "@/lib/fillerReview";
+import { reconcileScriptReview } from "@/lib/scriptLifecycle";
 import { temporal, type TemporalState } from "zundo";
 import { create, useStore } from "zustand";
 import {
@@ -184,244 +185,259 @@ export function endTypingGroup() {
 
 export const useProjectStore = create<ProjectState>()(
   temporal(
-    (set, _get) => ({
-      project: newProject("Untitled"),
-      dirty: false,
-      filePath: null,
-      pauseTokens: [],
+    (rawSet, _get) => {
+      // Every ordinary writer (including direct EDL setters) reconciles review
+      // mappings before the single undoable state update. Baseline loading and
+      // temporal undo/redo restore their captured state outside this wrapper.
+      const set = (
+        update: Partial<ProjectState> | ((state: ProjectState) => Partial<ProjectState>),
+      ) => {
+        const patch = typeof update === "function" ? update(_get()) : update;
+        rawSet(patch.project ? { ...patch, project: reconcileScriptReview(patch.project) } : patch);
+      };
+      return {
+        project: newProject("Untitled"),
+        dirty: false,
+        filePath: null,
+        pauseTokens: [],
 
-      setProject: (p) => {
-        p = reconcileFillerReview(p);
-        validateProjectTranscripts(p);
-        set({ project: p, dirty: true });
-      },
+        setProject: (p) => {
+          p = reconcileFillerReview(p);
+          validateProjectTranscripts(p);
+          set({ project: p, dirty: true });
+        },
 
-      commitTranscript: (next, expected, typingKey) => {
-        if (_get().project !== expected)
-          throw new Error("The transcript changed. Select the passage again.");
-        if (next === expected) return;
-        next = reconcileFillerReview(next);
-        validateProjectTranscripts(next);
-        const temporal = useProjectStore.temporal.getState();
-        const join =
-          typingKey &&
-          typingGroup?.key === typingKey &&
-          typingGroup.project === expected &&
-          Date.now() - typingGroup.time < 800 &&
-          temporal.futureStates.length === 0;
-        if (join) temporal.pause();
-        set({ project: next, dirty: true });
-        if (join) temporal.resume();
-        typingGroup = typingKey ? { key: typingKey, project: next, time: Date.now() } : undefined;
-      },
-      correctBlock: (segmentId, blockId, text, expected) => {
-        const next = editBlockText(expected, segmentId, blockId, text);
-        _get().commitTranscript(next, expected, `${segmentId}:${blockId}`);
-      },
-      applyTextEdits: (edits, expected) =>
-        _get().commitTranscript(replaceTranscriptBatch(_get().project, expected, edits), expected),
-      cutSpeech: (ranges, expected) =>
-        _get().commitTranscript(cutTranscriptRanges(expected, ranges), expected),
-      restoreOriginal: (segmentId, blockId) => {
-        const p = _get().project;
-        _get().commitTranscript(restoreTranscriptBlock(p, segmentId, blockId), p);
-      },
+        commitTranscript: (next, expected, typingKey) => {
+          if (_get().project !== expected)
+            throw new Error("The transcript changed. Select the passage again.");
+          if (next === expected) return;
+          next = reconcileFillerReview(next);
+          validateProjectTranscripts(next);
+          const temporal = useProjectStore.temporal.getState();
+          const join =
+            typingKey &&
+            typingGroup?.key === typingKey &&
+            typingGroup.project === expected &&
+            Date.now() - typingGroup.time < 800 &&
+            temporal.futureStates.length === 0;
+          if (join) temporal.pause();
+          set({ project: next, dirty: true });
+          if (join) temporal.resume();
+          typingGroup = typingKey ? { key: typingKey, project: next, time: Date.now() } : undefined;
+        },
+        correctBlock: (segmentId, blockId, text, expected) => {
+          const next = editBlockText(expected, segmentId, blockId, text);
+          _get().commitTranscript(next, expected, `${segmentId}:${blockId}`);
+        },
+        applyTextEdits: (edits, expected) =>
+          _get().commitTranscript(
+            replaceTranscriptBatch(_get().project, expected, edits),
+            expected,
+          ),
+        cutSpeech: (ranges, expected) =>
+          _get().commitTranscript(cutTranscriptRanges(expected, ranges), expected),
+        restoreOriginal: (segmentId, blockId) => {
+          const p = _get().project;
+          _get().commitTranscript(restoreTranscriptBlock(p, segmentId, blockId), p);
+        },
 
-      rename: (name) =>
-        set((s) => ({
-          project: { ...s.project, name, updatedAt: new Date().toISOString() },
-          dirty: true,
-        })),
+        rename: (name) =>
+          set((s) => ({
+            project: { ...s.project, name, updatedAt: new Date().toISOString() },
+            dirty: true,
+          })),
 
-      addMediaWithTranscript: (media, words) =>
-        set((s) => ({
-          project: addMediaWithTranscript(s.project, media, words),
-          dirty: true,
-        })),
+        addMediaWithTranscript: (media, words) =>
+          set((s) => ({
+            project: addMediaWithTranscript(s.project, media, words),
+            dirty: true,
+          })),
 
-      deleteWords: (ids) =>
-        set((s) => ({
-          project: deleteWords(s.project, new Set(ids)),
-          dirty: true,
-        })),
+        deleteWords: (ids) =>
+          set((s) => ({
+            project: deleteWords(s.project, new Set(ids)),
+            dirty: true,
+          })),
 
-      deleteOutputRange: (markIn, markOut) => {
-        const project = _get().project;
-        const next = cutOutputSpeech(project, markIn, markOut);
-        if (next === project) return 0;
-        _get().commitTranscript(next, project);
-        return 1;
-      },
+        deleteOutputRange: (markIn, markOut) => {
+          const project = _get().project;
+          const next = cutOutputSpeech(project, markIn, markOut);
+          if (next === project) return 0;
+          _get().commitTranscript(next, project);
+          return 1;
+        },
 
-      deleteBySourceRange: (srcStart, srcEnd) => {
-        const project = _get().project;
-        const ids: string[] = [];
-        for (const seg of project.segments) {
-          for (const w of seg.words) {
-            // word.start / word.end are already in source-media seconds
-            if (w.end > srcStart && w.start < srcEnd) {
-              ids.push(w.id);
+        deleteBySourceRange: (srcStart, srcEnd) => {
+          const project = _get().project;
+          const ids: string[] = [];
+          for (const seg of project.segments) {
+            for (const w of seg.words) {
+              // word.start / word.end are already in source-media seconds
+              if (w.end > srcStart && w.start < srcEnd) {
+                ids.push(w.id);
+              }
             }
           }
-        }
-        if (ids.length === 0) return 0;
-        set({
-          project: deleteWords(project, new Set(ids)),
-          dirty: true,
-        });
-        return ids.length;
-      },
+          if (ids.length === 0) return 0;
+          set({
+            project: deleteWords(project, new Set(ids)),
+            dirty: true,
+          });
+          return ids.length;
+        },
 
-      deleteSilenceRange: (srcStart, srcEnd) => {
-        const project = _get().project;
-        const ids = computeSilenceWordIds(project, srcStart, srcEnd);
-        if (ids.length === 0) return 0;
-        set({ project: deleteWords(project, new Set(ids)), dirty: true });
-        return ids.length;
-      },
+        deleteSilenceRange: (srcStart, srcEnd) => {
+          const project = _get().project;
+          const ids = computeSilenceWordIds(project, srcStart, srcEnd);
+          if (ids.length === 0) return 0;
+          set({ project: deleteWords(project, new Set(ids)), dirty: true });
+          return ids.length;
+        },
 
-      deleteWordsByText: (tokens) => {
-        const p = _get().project;
-        const ranges: TextRange[] = [];
-        for (const block of projectTranscript(p))
-          for (const run of block.runs) {
-            if (tokens.has(normaliseToken(run.text)) && run.text.trim())
-              ranges.push({
-                segmentId: block.segmentId,
-                blockId: block.id,
-                from: run.from,
-                to: run.to,
-              });
-          }
-        if (ranges.length) _get().cutSpeech(ranges, p);
-        return ranges.length;
-      },
+        deleteWordsByText: (tokens) => {
+          const p = _get().project;
+          const ranges: TextRange[] = [];
+          for (const block of projectTranscript(p))
+            for (const run of block.runs) {
+              if (tokens.has(normaliseToken(run.text)) && run.text.trim())
+                ranges.push({
+                  segmentId: block.segmentId,
+                  blockId: block.id,
+                  from: run.from,
+                  to: run.to,
+                });
+            }
+          if (ranges.length) _get().cutSpeech(ranges, p);
+          return ranges.length;
+        },
 
-      replaceText: (find, replace, opts) => {
-        if (!find) return 0;
-        const p = _get().project;
-        const edits = findTranscriptMatches(p, find, opts).map((match) => ({
-          ...match, text: replace,
-        }));
-        _get().applyTextEdits(edits, p);
-        return edits.length;
-      },
+        replaceText: (find, replace, opts) => {
+          if (!find) return 0;
+          const p = _get().project;
+          const edits = findTranscriptMatches(p, find, opts).map((match) => ({
+            ...match,
+            text: replace,
+          }));
+          _get().applyTextEdits(edits, p);
+          return edits.length;
+        },
 
-      removeSilences: (gapMs) => {
-        const project = _get().project;
-        const [next, removed] = removeSilences(project, gapMs ? { gapMs } : undefined);
-        if (removed === 0) return 0;
-        set({ project: next, dirty: true });
-        return removed;
-      },
+        removeSilences: (gapMs) => {
+          const project = _get().project;
+          const [next, removed] = removeSilences(project, gapMs ? { gapMs } : undefined);
+          if (removed === 0) return 0;
+          set({ project: next, dirty: true });
+          return removed;
+        },
 
-      addChapter: (outputTime, title) =>
-        set((s) => ({ project: addChapter(s.project, outputTime, title), dirty: true })),
-      removeChapter: (id) => set((s) => ({ project: removeChapter(s.project, id), dirty: true })),
-      renameChapter: (id, title) =>
-        set((s) => ({ project: renameChapter(s.project, id, title), dirty: true })),
-      setChapters: (chapters) =>
-        set((s) => ({
-          project: {
-            ...s.project,
-            chapters: chapters.map((c) => ({
-              id: crypto.randomUUID(),
-              title: c.title,
-              outputTime: c.outputTime,
-            })),
-            updatedAt: new Date().toISOString(),
-          },
-          dirty: true,
-        })),
+        addChapter: (outputTime, title) =>
+          set((s) => ({ project: addChapter(s.project, outputTime, title), dirty: true })),
+        removeChapter: (id) => set((s) => ({ project: removeChapter(s.project, id), dirty: true })),
+        renameChapter: (id, title) =>
+          set((s) => ({ project: renameChapter(s.project, id, title), dirty: true })),
+        setChapters: (chapters) =>
+          set((s) => ({
+            project: {
+              ...s.project,
+              chapters: chapters.map((c) => ({
+                id: crypto.randomUUID(),
+                title: c.title,
+                outputTime: c.outputTime,
+              })),
+              updatedAt: new Date().toISOString(),
+            },
+            dirty: true,
+          })),
 
-      addAudioTrack: (track) =>
-        set((s) => ({ project: addAudioTrack(s.project, track), dirty: true })),
-      removeAudioTrack: (id) =>
-        set((s) => ({ project: removeAudioTrack(s.project, id), dirty: true })),
-      updateAudioTrack: (id, patch) =>
-        set((s) => ({ project: updateAudioTrack(s.project, id, patch), dirty: true })),
-      addMediaOnly: (media) =>
-        set((s) => ({
-          project: {
-            ...s.project,
-            media: { ...s.project.media, [media.id]: media },
-            updatedAt: new Date().toISOString(),
-          },
-          dirty: true,
-        })),
+        addAudioTrack: (track) =>
+          set((s) => ({ project: addAudioTrack(s.project, track), dirty: true })),
+        removeAudioTrack: (id) =>
+          set((s) => ({ project: removeAudioTrack(s.project, id), dirty: true })),
+        updateAudioTrack: (id, patch) =>
+          set((s) => ({ project: updateAudioTrack(s.project, id, patch), dirty: true })),
+        addMediaOnly: (media) =>
+          set((s) => ({
+            project: {
+              ...s.project,
+              media: { ...s.project.media, [media.id]: media },
+              updatedAt: new Date().toISOString(),
+            },
+            dirty: true,
+          })),
 
-      markSaved: (path, expected = _get().project, session = currentSession) => {
-        if (session !== currentSession) return;
-        savedProject = expected;
-        set({ dirty: _get().project !== expected, filePath: path });
-      },
+        markSaved: (path, expected = _get().project, session = currentSession) => {
+          if (session !== currentSession) return;
+          savedProject = expected;
+          set({ dirty: _get().project !== expected, filePath: path });
+        },
 
-      closeProject: () => replaceProjectBaseline(newProject("Untitled")),
+        closeProject: () => replaceProjectBaseline(newProject("Untitled")),
 
-      // -----------------------------------------------------------------------
-      // Pause token actions
-      // -----------------------------------------------------------------------
+        // -----------------------------------------------------------------------
+        // Pause token actions
+        // -----------------------------------------------------------------------
 
-      setPauseTokens: (pauses) => set({ pauseTokens: pauses }),
+        setPauseTokens: (pauses) => set({ pauseTokens: pauses }),
 
-      removePauseToken: (id) =>
-        set((s) => ({ pauseTokens: s.pauseTokens.filter((p) => p.id !== id) })),
+        removePauseToken: (id) =>
+          set((s) => ({ pauseTokens: s.pauseTokens.filter((p) => p.id !== id) })),
 
-      markPauseDeleted: (id) =>
-        set((s) => ({
-          pauseTokens: s.pauseTokens.map((p) => (p.id === id ? { ...p, deleted: true } : p)),
-        })),
+        markPauseDeleted: (id) =>
+          set((s) => ({
+            pauseTokens: s.pauseTokens.map((p) => (p.id === id ? { ...p, deleted: true } : p)),
+          })),
 
-      deletePauseById: (id) => {
-        const { pauseTokens } = _get();
-        const pause = pauseTokens.find((p) => p.id === id);
-        if (!pause) return;
-        const project = _get().project;
-        const wordIds = computeSilenceWordIds(project, pause.start, pause.end);
-        set({
-          project: wordIds.length > 0 ? deleteWords(project, new Set(wordIds)) : project,
-          dirty: _get().dirty || wordIds.length > 0,
-          pauseTokens: pauseTokens.filter((p) => p.id !== id),
-        });
-      },
-
-      deletePausesLongerThan: (seconds) => {
-        const { pauseTokens } = _get();
-        const targets = pauseTokens.filter((p) => !p.deleted && p.duration > seconds);
-        if (targets.length === 0) return 0;
-        let project = _get().project;
-        let anyDeleted = false;
-        for (const pause of targets) {
+        deletePauseById: (id) => {
+          const { pauseTokens } = _get();
+          const pause = pauseTokens.find((p) => p.id === id);
+          if (!pause) return;
+          const project = _get().project;
           const wordIds = computeSilenceWordIds(project, pause.start, pause.end);
-          if (wordIds.length > 0) {
-            project = deleteWords(project, new Set(wordIds));
-            anyDeleted = true;
-          }
-        }
-        const targetIds = new Set(targets.map((p) => p.id));
-        set({
-          project,
-          dirty: _get().dirty || anyDeleted,
-          pauseTokens: pauseTokens.filter((p) => !targetIds.has(p.id)),
-        });
-        return targets.length;
-      },
+          set({
+            project: wordIds.length > 0 ? deleteWords(project, new Set(wordIds)) : project,
+            dirty: _get().dirty || wordIds.length > 0,
+            pauseTokens: pauseTokens.filter((p) => p.id !== id),
+          });
+        },
 
-      shortenPausesLongerThan: ({ longerThan, shortenTo }) => {
-        const { pauseTokens } = _get();
-        const targets = pauseTokens.filter((p) => !p.deleted && p.duration > longerThan);
-        if (targets.length === 0) return 0;
-        const targetIds = new Set(targets.map((p) => p.id));
-        set({
-          pauseTokens: pauseTokens.map((p) =>
-            targetIds.has(p.id) ? { ...p, shortenedTo: shortenTo } : p,
-          ),
-        });
-        // TODO Phase 2: trim the source segment to remove (pause.start + shortenTo, pause.end)
-        // from the export timeline.  This requires an EDL segment-splitting operation.
-        return targets.length;
-      },
-    }),
+        deletePausesLongerThan: (seconds) => {
+          const { pauseTokens } = _get();
+          const targets = pauseTokens.filter((p) => !p.deleted && p.duration > seconds);
+          if (targets.length === 0) return 0;
+          let project = _get().project;
+          let anyDeleted = false;
+          for (const pause of targets) {
+            const wordIds = computeSilenceWordIds(project, pause.start, pause.end);
+            if (wordIds.length > 0) {
+              project = deleteWords(project, new Set(wordIds));
+              anyDeleted = true;
+            }
+          }
+          const targetIds = new Set(targets.map((p) => p.id));
+          set({
+            project,
+            dirty: _get().dirty || anyDeleted,
+            pauseTokens: pauseTokens.filter((p) => !targetIds.has(p.id)),
+          });
+          return targets.length;
+        },
+
+        shortenPausesLongerThan: ({ longerThan, shortenTo }) => {
+          const { pauseTokens } = _get();
+          const targets = pauseTokens.filter((p) => !p.deleted && p.duration > longerThan);
+          if (targets.length === 0) return 0;
+          const targetIds = new Set(targets.map((p) => p.id));
+          set({
+            pauseTokens: pauseTokens.map((p) =>
+              targetIds.has(p.id) ? { ...p, shortenedTo: shortenTo } : p,
+            ),
+          });
+          // TODO Phase 2: trim the source segment to remove (pause.start + shortenTo, pause.end)
+          // from the export timeline.  This requires an EDL segment-splitting operation.
+          return targets.length;
+        },
+      };
+    },
     {
       // Per spec: cap undo at 50 steps.
       limit: 50,

@@ -46,6 +46,7 @@ pub enum JobKind {
     Transcribe,
     DownloadModel,
     Snapshot,
+    ScriptReconcile,
 }
 
 impl JobKind {
@@ -55,6 +56,7 @@ impl JobKind {
             JobKind::Transcribe => "transcribe",
             JobKind::DownloadModel => "download-model",
             JobKind::Snapshot => "snapshot",
+            JobKind::ScriptReconcile => "script-reconcile",
         }
     }
 }

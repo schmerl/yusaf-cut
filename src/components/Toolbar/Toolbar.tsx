@@ -1,3 +1,7 @@
+import { ScriptPanel } from "@/components/TranscriptEditor/ScriptPanel";
+import { OpenDialog } from "./OpenDialog";
+import { useAppCommands, dispatchCommand } from "@/lib/appCommands";
+import { replaceStoredScript, type StoredScript } from "@/lib/scriptAssistance";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -61,7 +65,7 @@ import {
   newProject,
   totalDuration,
 } from "@/lib/edl";
-import { buildSrt, buildVtt } from "@/lib/captions";
+import { buildSrt, buildVtt, buildUntimedTranscript } from "@/lib/captions";
 import { usePlayerStore } from "@/stores/playerStore";
 import { Toolbox } from "@/components/Toolbox/Toolbox";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
@@ -77,7 +81,7 @@ import {
   snapshotBeforeTranscription,
   type TranscriptionRequest,
 } from "@/lib/transcriptionWorkflow";
-import { isProjectPath, openSavedProject } from "@/lib/openProject";
+import { openSavedProject } from "@/lib/openProject";
 
 const MODELS: { name: WhisperModel; label: string; sizeMb: number }[] = [
   { name: "tiny", label: "Tiny (fast, lower accuracy)", sizeMb: 75 },
@@ -147,11 +151,15 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const setTranscribeProgress = useUIStore((s) => s.setTranscribeProgress);
   const displayName = filePath?.split(/[\\/]/).pop() ?? `${project.name}.scribe`;
 
+  const [scriptDialogOpen, setScriptDialogOpen] = useState(false);
+  const [openDialogVisible, setOpenDialogVisible] = useState(false);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<WhisperModel>("large-v3-turbo");
   const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper-cpp");
-  const [crisperModel, setCrisperModel] = useState<"small" | "medium" | "large" | "turbo">("medium");
+  const [crisperModel, setCrisperModel] = useState<"small" | "medium" | "large" | "turbo">(
+    "medium",
+  );
   const [crisperDevice, setCrisperDevice] = useState<CrisperDevice>("mps");
   const [transcribeLanguage, setTranscribeLanguage] = useState("auto");
   const [transcribeTranslate, setTranscribeTranslate] = useState(false);
@@ -194,38 +202,26 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const hasTranscript = project.segments.some((s) => s.words.length > 0);
   const correctionCount = replacementRequest ? correctedOccurrences(replacementRequest) : 0;
 
-  async function handleOpen() {
-    const path = await openDialog({
-      title: "Open media or a saved project",
-      multiple: false,
-      filters: [
-        { name: "Media or project", extensions: [...MEDIA_EXTENSIONS, "scribe", "json"] },
-        { name: "Media", extensions: MEDIA_EXTENSIONS },
-        { name: "YusafCut project", extensions: ["scribe", "json"] },
-      ],
-    });
-    if (typeof path !== "string") return;
-    if (isProjectPath(path)) {
-      await openSavedProject(path);
-      return;
-    }
+  function handleOpen() {
+    setOpenDialogVisible(true);
+  }
+  async function openMediaWithScript(path: string, script?: StoredScript) {
+    const expected = useProjectStore.getState().project;
+    const session = projectSession();
     setMediaLoading(true);
     try {
       const media = await importMedia(path);
       const name = mediaNameFromPath(media.path);
       const cachedWords = readTranscriptCache(media);
-      const nextProject = buildProjectWithMedia(newProject(name), media, cachedWords ?? []);
+      if (projectSession() !== session || useProjectStore.getState().project !== expected)
+        throw new Error("The project changed while opening. Try again.");
+      let nextProject = buildProjectWithMedia(newProject(name), media, cachedWords ?? []);
+      if (script) nextProject = replaceStoredScript(nextProject, script);
       resetPlayer();
       replaceProjectBaseline(nextProject, { dirty: true, filePath: null });
       pushToast({
         title: cachedWords ? "Media imported with cached transcript" : "Media imported",
         description: media.path,
-      });
-    } catch (err) {
-      pushToast({
-        title: "Failed to import media",
-        description: String(err),
-        variant: "destructive",
       });
     } finally {
       setMediaLoading(false);
@@ -569,7 +565,10 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       assertTranscriptionCurrent(request);
       setReplacementRequest(null);
       setTranscribeProgress(0);
-      if (settings.engine === "whisper-cpp" && !installedModels.find((m) => m.name === settings.modelName)?.installed) {
+      if (
+        settings.engine === "whisper-cpp" &&
+        !installedModels.find((m) => m.name === settings.modelName)?.installed
+      ) {
         await downloadModel("whisper-cpp", settings.modelName);
         assertTranscriptionCurrent(request);
       }
@@ -687,6 +686,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   // Captions reflect the *output* timeline, so deletes and clip reordering
   // carry over to the .srt/.vtt without the user having to think about it.
   const handleExportCaptions = useCallback(async () => {
+    const session = projectSession();
     const hasWords = project.segments.some((s) => s.words.length > 0);
     if (!hasWords) {
       pushToast({
@@ -701,15 +701,23 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       filters: [
         { name: "SubRip subtitles", extensions: ["srt"] },
         { name: "WebVTT captions", extensions: ["vtt"] },
+        { name: "YouTube transcript (without timing)", extensions: ["txt"] },
       ],
     });
     if (!outPath) return;
     const isVtt = outPath.toLowerCase().endsWith(".vtt");
+    const isTxt = outPath.toLowerCase().endsWith(".txt");
     try {
-      const content = isVtt ? buildVtt(project) : buildSrt(project);
+      if (projectSession() !== session) {
+        throw new Error("The project changed. Export captions again from the current project.");
+      }
+      // Corrections may finish while the native save dialog is open. Read the
+      // current revision at serialization time, not the render's older snapshot.
+      const current = useProjectStore.getState().project;
+      const content = isTxt ? buildUntimedTranscript(current) : isVtt ? buildVtt(current) : buildSrt(current);
       await writeTextFile(outPath, content);
       pushToast({
-        title: isVtt ? "WebVTT exported" : "SRT exported",
+        title: isTxt ? "Untimed transcript exported" : isVtt ? "WebVTT exported" : "SRT exported",
         description: outPath,
       });
     } catch (err) {
@@ -730,8 +738,41 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     };
   }, [handleSave, handleExport]);
 
+  useAppCommands({
+    script: () => setScriptDialogOpen(true),
+    open: handleOpen,
+    save: () => {
+      void handleSave();
+    },
+    export: handleExport,
+    "add-clip": () => {
+      void handleAddClip();
+    },
+    new: handleNewProject,
+    "close-project": handleCloseProject,
+    captions: () => {
+      void handleExportCaptions();
+    },
+    snapshots: () => setSnapshotsDialogOpen(true),
+    find: () => onFindClick?.(),
+  });
+
   return (
     <div className="editor-toolbar">
+      <Dialog open={scriptDialogOpen} onOpenChange={setScriptDialogOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogTitle>Presentation script</DialogTitle>
+          <DialogDescription>Add or replace the stored script for this project.</DialogDescription>
+          <ScriptPanel onClose={() => setScriptDialogOpen(false)} />
+        </DialogContent>
+      </Dialog>
+      {openDialogVisible && (
+        <OpenDialog
+          onClose={() => setOpenDialogVisible(false)}
+          onProject={handleOpenProject}
+          onMedia={openMediaWithScript}
+        />
+      )}
       <div className="editor-toolbar-top">
         <div className="toolbar-title">
           <span>{displayName}</span>
@@ -745,7 +786,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             variant="ghost"
             onClick={handleExportCaptions}
             className="h-8 gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
-            title="Export captions (.srt or .vtt)"
+            title="Export captions (.srt, .vtt or untimed .txt)"
           >
             <Captions className="h-4 w-4" /> Captions
           </Button>
@@ -778,6 +819,9 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             <DropdownMenuContent align="start" className="min-w-[180px]">
               <DropdownMenuItem onClick={handleAddClip}>
                 <Scissors className="h-4 w-4 mr-2" /> Add Clip
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => dispatchCommand("script")}>
+                Add / Replace Script…
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleNewProject}>
                 <FilePlus2 className="h-4 w-4 mr-2" /> New Project
@@ -999,115 +1043,122 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
           </p>
 
           {/* ── Model list ── */}
-          {selectedEngine === "whisper-cpp" ? <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
-            {MODELS.map((m) => {
-              const installed = installedModels.find((i) => i.name === m.name)?.installed ?? false;
-              const isDownloading = downloadingModel === m.name;
-              const isOtherDownloading = downloadingModel !== null && !isDownloading;
-              const isDeleting = deletingModel === m.name;
-              const isSelected = selectedModel === m.name;
+          {selectedEngine === "whisper-cpp" ? (
+            <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
+              {MODELS.map((m) => {
+                const installed =
+                  installedModels.find((i) => i.name === m.name)?.installed ?? false;
+                const isDownloading = downloadingModel === m.name;
+                const isOtherDownloading = downloadingModel !== null && !isDownloading;
+                const isDeleting = deletingModel === m.name;
+                const isSelected = selectedModel === m.name;
 
-              return (
-                <div
-                  key={m.name}
-                  className={`rounded-md border p-3 transition-colors ${
-                    isSelected ? "border-primary bg-accent" : "border-border hover:bg-accent/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-                      <input
-                        type="radio"
-                        name="model"
-                        value={m.name}
-                        checked={isSelected}
-                        disabled={!installed}
-                        onChange={() => setSelectedModel(m.name as WhisperModel)}
-                      />
-                      {m.label}
-                    </label>
-                    {installed ? (
-                      <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Installed
+                return (
+                  <div
+                    key={m.name}
+                    className={`rounded-md border p-3 transition-colors ${
+                      isSelected ? "border-primary bg-accent" : "border-border hover:bg-accent/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                        <input
+                          type="radio"
+                          name="model"
+                          value={m.name}
+                          checked={isSelected}
+                          disabled={!installed}
+                          onChange={() => setSelectedModel(m.name as WhisperModel)}
+                        />
+                        {m.label}
+                      </label>
+                      {installed ? (
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Installed
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            disabled={
+                              isDeleting || downloadingModel !== null || transcribeProgress !== null
+                            }
+                            title="Remove this model from disk"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteModel(m.name);
+                            }}
+                          >
+                            {isDeleting ? "Removing…" : "Remove"}
+                          </Button>
+                        </div>
+                      ) : isDownloading ? (
+                        <span className="text-xs text-muted-foreground">
+                          {Math.round(downloadProgress * 100)}%
                         </span>
+                      ) : (
                         <Button
                           size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          disabled={
-                            isDeleting || downloadingModel !== null || transcribeProgress !== null
-                          }
-                          title="Remove this model from disk"
+                          variant="outline"
+                          className="h-7 gap-1 px-2 text-xs"
+                          disabled={isOtherDownloading}
                           onClick={(e) => {
                             e.stopPropagation();
-                            void handleDeleteModel(m.name);
+                            void handleDownloadModel(m.name);
                           }}
                         >
-                          {isDeleting ? "Removing…" : "Remove"}
+                          <Download className="h-3 w-3" />
+                          {m.sizeMb >= 1000
+                            ? `${(m.sizeMb / 1000).toFixed(1)} GB`
+                            : `${m.sizeMb} MB`}
                         </Button>
+                      )}
+                    </div>
+                    {isDownloading && (
+                      <div className="mt-2">
+                        <Progress value={downloadProgress * 100} className="h-1.5" />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {downloadLabel} — {Math.round(downloadProgress * 100)}% — do not close
+                        </p>
                       </div>
-                    ) : isDownloading ? (
-                      <span className="text-xs text-muted-foreground">
-                        {Math.round(downloadProgress * 100)}%
-                      </span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 gap-1 px-2 text-xs"
-                        disabled={isOtherDownloading}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDownloadModel(m.name);
-                        }}
-                      >
-                        <Download className="h-3 w-3" />
-                        {m.sizeMb >= 1000 ? `${(m.sizeMb / 1000).toFixed(1)} GB` : `${m.sizeMb} MB`}
-                      </Button>
                     )}
                   </div>
-                  {isDownloading && (
-                    <div className="mt-2">
-                      <Progress value={downloadProgress * 100} className="h-1.5" />
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {downloadLabel} — {Math.round(downloadProgress * 100)}% — do not close
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div> : <div className="grid gap-3 rounded-md border border-border p-3">
-            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-              CrisperWhisper model
-              <select
-                className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
-                value={crisperModel}
-                onChange={(event) => setCrisperModel(event.target.value as typeof crisperModel)}
-              >
-                <option value="small">Small</option>
-                <option value="medium">Medium</option>
-                <option value="large">Large</option>
-                <option value="turbo">Turbo</option>
-              </select>
-            </label>
-            <p className="text-xs text-muted-foreground">
-              The first run can take several minutes while the local model downloads.
-            </p>
-            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-              CrisperWhisper processing
-              <select
-                className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
-                value={crisperDevice}
-                onChange={(event) => setCrisperDevice(event.target.value as CrisperDevice)}
-              >
-                <option value="mps">Apple GPU (MPS) · faster on supported Macs</option>
-                <option value="cpu">CPU · compatibility option</option>
-              </select>
-            </label>
-          </div>}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid gap-3 rounded-md border border-border p-3">
+              <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+                CrisperWhisper model
+                <select
+                  className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                  value={crisperModel}
+                  onChange={(event) => setCrisperModel(event.target.value as typeof crisperModel)}
+                >
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large">Large</option>
+                  <option value="turbo">Turbo</option>
+                </select>
+              </label>
+              <p className="text-xs text-muted-foreground">
+                The first run can take several minutes while the local model downloads.
+              </p>
+              <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+                CrisperWhisper processing
+                <select
+                  className="h-8 rounded border border-input bg-background px-2 text-sm text-foreground"
+                  value={crisperDevice}
+                  onChange={(event) => setCrisperDevice(event.target.value as CrisperDevice)}
+                >
+                  <option value="mps">Apple GPU (MPS) · faster on supported Macs</option>
+                  <option value="cpu">CPU · compatibility option</option>
+                </select>
+              </label>
+            </div>
+          )}
 
           {/* ── Language / options ── */}
           <div className="grid gap-3 rounded-md border border-border p-3">
@@ -1127,32 +1178,34 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             </label>
 
             {/* translate + diarize */}
-            {selectedEngine === "whisper-cpp" && <div className="flex flex-col gap-2">
-              <label className="flex cursor-pointer items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={transcribeTranslate}
-                  onChange={(e) => setTranscribeTranslate(e.target.checked)}
-                />
-                <span>
-                  <span className="font-medium">Translate to English</span>
-                  <span className="ml-1 text-muted-foreground">
-                    — output English regardless of source
+            {selectedEngine === "whisper-cpp" && (
+              <div className="flex flex-col gap-2">
+                <label className="flex cursor-pointer items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={transcribeTranslate}
+                    onChange={(e) => setTranscribeTranslate(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Translate to English</span>
+                    <span className="ml-1 text-muted-foreground">
+                      — output English regardless of source
+                    </span>
                   </span>
-                </span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={transcribeDiarize}
-                  onChange={(e) => setTranscribeDiarize(e.target.checked)}
-                />
-                <span>
-                  <span className="font-medium">Speaker diarisation</span>
-                  <span className="ml-1 text-muted-foreground">— label who is speaking</span>
-                </span>
-              </label>
-            </div>}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={transcribeDiarize}
+                    onChange={(e) => setTranscribeDiarize(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Speaker diarisation</span>
+                    <span className="ml-1 text-muted-foreground">— label who is speaking</span>
+                  </span>
+                </label>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

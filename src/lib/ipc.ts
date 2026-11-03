@@ -235,7 +235,36 @@ export function revealInFinder(path: string): Promise<void> {
 // to eliminate the Python/MLX sidecar dependency. Restore from commit
 // 074d1d3 if needed.
 
-export type JobKind = "export" | "transcribe" | "download-model" | "snapshot";
+export type JobKind = "export" | "transcribe" | "download-model" | "snapshot" | "script-reconcile";
+
+export interface ScriptAudioWindow {
+  segmentId: string;
+  sourceIn: number;
+  sourceOut: number;
+}
+export interface ScriptAudioEvidence {
+  engine: string;
+  model: string;
+  windows: (ScriptAudioWindow & { text: string })[];
+}
+export function analyzeScriptAudio(
+  project: Project,
+  windows: ScriptAudioWindow[],
+  requestId: string,
+  model: WhisperModel,
+): Promise<ScriptAudioEvidence> {
+  return invoke("analyze_script_audio", { project, windows, requestId, model });
+}
+export function cancelScriptAnalysis(requestId: string): Promise<void> {
+  return invoke("cancel_script_analysis", { requestId });
+}
+export function onScriptProgress(
+  handler: (value: { requestId: string; completed: number; total: number }) => void,
+): Promise<UnlistenFn> {
+  return listen("script:progress", (event) =>
+    handler(event.payload as { requestId: string; completed: number; total: number }),
+  );
+}
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface JobSnapshot {

@@ -1,5 +1,7 @@
 # Filler review: ready to try in the app
 
+**Current development workflow:** start with the [inline review checkpoint](script-corrections-checkpoint.md). The walkthrough below records the earlier controls. Original-text inspection now lives in the native Edit menu, and detailed filler controls are under Options → Filler settings.
+
 The review workflow is now implemented and ready for hands-on native review.
 No live app testing has been performed by the implementation agent.
 

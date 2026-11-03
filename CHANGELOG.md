@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Known issues reported during development
+- Exported captions reportedly retain HDTP/Jason despite HTTP/JSON transcript
+  corrections, and produce unnecessary single-word lines. Recorded for a separate
+  export investigation in `docs/export-caption-bugs.md`; not fixed yet.
+
+### Development
+- Preserve untouched script suggestions when a filler/off-script cut splits their
+  paragraph. Rebase context only for exact surviving anchors/text/timing in the
+  same occurrence; removed targets remain invalidated. Apply the same protection
+  to filler text hiding and explicit filler wording changes.
+- Automatically estimate bounded filler cut timing when entering an eligible
+  filler. Show progress/uncertainty and reject late results after navigation,
+  project/session changes or manual boundary adjustments. No automatic cut occurs.
+- Advance to the next combined script/filler item after Accept, Dismiss or saving
+  custom wording; preserve adjacent unchanged proposals during explicit review edits.
+- Add a durable Review log for script/filler decisions, source spans and before/after
+  text, with Locate, guarded Review again/Revert text and latest-decision Undo.
+  Preserve the log through native saves/snapshots and normal undo/redo.
+- Include trailing punctuation in original-word off-script ranges, so truncated
+  restarts such as `documente-` are marked without bypassing timing-group guards.
+- Keep vocal fillers out of script wording replacements, and regenerate legacy
+  pending results with the updated matching policy. Offer exact-value decimal and
+  spoken-digit notation such as three point one → 3.1 and two O/Oh two → 202.
+- Label matches without an inferred replacement as Needs review; add user-entered
+  text in correction/filler/off-script popovers with a separate undoable text edit.
+- Use exact source bounds for off-script cuts instead of legacy word padding.
+  Add before/after buffers, reject neighboring speech (including hidden words),
+  show proposed duration and retained following text, and preserve preview/commit.
+- Preserve transcript passage selections across toolbar/menu focus and show the
+  retained range until a new caret/selection, text change or project session.
+  Missing-script review actions now open setup rather than staying silently disabled.
+- Label correction highlights with their before → replacement text (for example,
+  Jason → JSON), and document whole-transcript highlighting without a selection.
+- Replace persistent script/filler review panels with a shared inline popover and
+  compact transcript review toolbar. Show text suggestions without waiting for
+  Whisper; retain explicit local audio checking and existing independent evidence.
+- Add recording-plus-optional-script opening and native macOS File/Edit/Review/
+  Window menus, including project Undo/Redo and shared toolbar commands. Move script
+  management and detailed filler settings into dialogs.
+- Preserve transcript scroll during cuts, retain passage-scoped review navigation,
+  and allow Undo → Keep immediately after validating the restored occurrence.
+  Discard obsolete previews and late filler boundary estimates.
+- Add a script-reconciliation review prototype: stored Markdown revisions and
+  spoken preview, parser warnings, provenance/manual protection, bounded local
+  unprompted audio analysis, selected/whole scope, cancellation/session guards,
+  pending Accept/Dismiss and bulk formatting, and off-script listening/preview/
+  explicit cutting. Scripts and evidence survive saves/snapshots; edits reconcile
+  stale records atomically. Automatic wording application is still disabled.
+- Add native review instructions and a criterion-by-criterion acceptance audit.
+  Keep/Revert for applied records is covered by synthetic fixtures; real automatic
+  generation and held-out evaluation are not complete.
+- Begin script-assisted correction feasibility work with a read-only local
+  listening study tool, disposable project copies, source integrity checks,
+  development/held-out separation, and unprompted/script/adversarial Whisper
+  comparisons. Includes intermediate and planned final human review scripts.
+  That initial tooling checkpoint preceded the review prototype above.
+
 ## [4.7.0] - 2026-10-26
 
 ### Added

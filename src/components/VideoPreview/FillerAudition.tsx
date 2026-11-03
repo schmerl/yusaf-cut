@@ -146,7 +146,10 @@ export function FillerAudition() {
   }, [stop]);
   if (!request) return null;
   return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-black" aria-label="Filler audition">
+    <div
+      className="absolute inset-0 z-10 flex flex-col bg-black"
+      aria-label={request.reviewLabel ?? "Filler audition"}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 bg-amber-950 px-3 py-2 text-xs text-amber-100">
         <span>
           {request.mode === "preview"

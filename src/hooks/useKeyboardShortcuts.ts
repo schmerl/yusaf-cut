@@ -34,10 +34,12 @@ export function useKeyboardShortcuts() {
         !!target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable ||
           !!target.closest('[contenteditable="true"]'));
 
       const mod = isMac() ? e.metaKey : e.ctrlKey;
+      if (target?.closest("button, summary") && [" ", "Enter"].includes(e.key)) return;
 
       if (mod && e.shiftKey && e.key.toLowerCase() === "x") {
         if (inTextField) return; // editor handles its precise text selection

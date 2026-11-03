@@ -1,4 +1,6 @@
+import { logFillerReview } from "./reviewLog";
 import { v4 as uuid } from "uuid";
+import { reconcileScriptReview, rebaseReviewContexts } from "./scriptLifecycle";
 import { computeTimeline, type Project, type Segment, type Word } from "./edl";
 import {
   fillerCandidates,
@@ -52,7 +54,9 @@ function currentCandidate(project: Project, candidate: FillerCandidate): FillerC
   return current;
 }
 function finish(project: Project): Project {
-  const next = reconcileFillerReview({ ...project, updatedAt: new Date().toISOString() });
+  const next = reconcileScriptReview(
+    reconcileFillerReview({ ...project, updatedAt: new Date().toISOString() }),
+  );
   validateProjectTranscripts(next);
   return next;
 }
@@ -81,7 +85,11 @@ export function setFillerDecision(
       anchorIds: current.anchorIds,
       outcome,
     });
-  return finish({ ...project, fillerReview: { ...metadata, decisions } });
+  return logFillerReview(
+    finish({ ...project, fillerReview: { ...metadata, decisions } }),
+    current,
+    outcome ? "keep" : "reopen",
+  );
 }
 
 /** Entire recognized tokens include their punctuation; grouped substrings remain exact. */
@@ -116,29 +124,45 @@ export function removeFillerText(project: Project, candidate: FillerCandidate): 
         text: "",
       });
   const hidden = fillerCandidates(next).find((c) => c.id === current.id && c.hidden);
-  if (!hidden) return next; // Grouped substring edits can change timing-group identity.
+  if (!hidden)
+    return logFillerReview(
+      reconcileScriptReview(rebaseReviewContexts(project, next)),
+      current,
+      "hide",
+      "",
+    ); // Grouped substring edits can change timing-group identity.
   const metadata = next.fillerReview ?? {
     version: 1 as const,
     policy: defaultFillerPolicy(),
     decisions: [],
   };
-  return finish({
-    ...next,
-    fillerReview: {
-      ...metadata,
-      decisions: [
-        ...metadata.decisions.filter((d) => d.candidateId !== hidden.id),
-        {
-          candidateId: hidden.id,
-          fingerprint: hidden.fingerprint,
-          mediaId: hidden.mediaId,
-          occurrenceLineage: hidden.occurrenceLineage,
-          anchorIds: hidden.anchorIds,
-          outcome: "text-removed",
-        },
-      ],
-    },
-  });
+  return logFillerReview(
+    reconcileScriptReview(
+      rebaseReviewContexts(
+        project,
+        finish({
+          ...next,
+          fillerReview: {
+            ...metadata,
+            decisions: [
+              ...metadata.decisions.filter((d) => d.candidateId !== hidden.id),
+              {
+                candidateId: hidden.id,
+                fingerprint: hidden.fingerprint,
+                mediaId: hidden.mediaId,
+                occurrenceLineage: hidden.occurrenceLineage,
+                anchorIds: hidden.anchorIds,
+                outcome: "text-removed",
+              },
+            ],
+          },
+        }),
+      ),
+    ),
+    current,
+    "hide",
+    "",
+  );
 }
 
 /** A complete immutable alternate timeline. No store write and no legacy padding. */
@@ -235,16 +259,26 @@ export function buildFillerCutProposal(
   edge(Math.max(source.sourceIn, recognizedStart), cutStart);
   edge(cutEnd, Math.min(source.sourceOut, recognizedEnd));
   ordinary(Math.max(cutEnd, recognizedEnd), source.sourceOut);
-  const result = finish({
-    ...normalized,
-    segments: normalized.segments
-      .flatMap((s) => (s.id === source.id ? fragments : [s]))
-      .map((s) => (s.precise ? s : { ...s, precise: true })),
-  });
+  const result = reconcileScriptReview(
+    rebaseReviewContexts(
+      project,
+      finish({
+        ...normalized,
+        segments: normalized.segments
+          .flatMap((s) => (s.id === source.id ? fragments : [s]))
+          .map((s) => (s.precise ? s : { ...s, precise: true })),
+      }),
+    ),
+  );
   const entry = computeTimeline(project).find((e) => e.segmentId === source.id)!;
   return {
     before: project,
-    result,
+    result: logFillerReview(
+      result,
+      { ...current, sourceStart: cutStart, sourceEnd: cutEnd },
+      "cut",
+      "",
+    ),
     candidate: current,
     cutStart,
     cutEnd,
@@ -256,4 +290,33 @@ export function buildFillerCutProposal(
     latestEnd: following.reduce((limit, word) => Math.min(limit, word.start), source.sourceOut),
     timingWarning,
   };
+}
+
+/** Explicit filler wording edits preserve independent neighboring proposals. */
+export function replaceFillerText(
+  project: Project,
+  candidate: FillerCandidate,
+  text: string,
+): Project {
+  if (!text) return removeFillerText(project, candidate);
+  if (text.length > 100000 || /[\r\n\0]/u.test(text))
+    throw new Error("Enter replacement text within one paragraph.");
+  const current = currentCandidate(project, candidate);
+  const next = replaceTranscriptText(
+    project,
+    {
+      segmentId: current.segmentId,
+      blockId: current.blockId,
+      from: current.from,
+      to: current.to,
+      text,
+    },
+    { author: "manual" },
+  );
+  return logFillerReview(
+    reconcileScriptReview(rebaseReviewContexts(project, next)),
+    current,
+    "replace",
+    text,
+  );
 }

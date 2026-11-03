@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "id": "fixture",
+  "name": "Corrections",
+  "createdAt": "2026-10-26",
+  "updatedAt": "2026-10-26",
+  "media": {
+    "m1": {
+      "id": "m1",
+      "path": "/tmp/lecture.mp4",
+      "duration": 5.0,
+      "fps": 30.0,
+      "width": 1920,
+      "height": 1080,
+      "audioSampleRate": 48000,
+      "sha256": "fixture-only"
+    }
+  },
+  "segments": [
+    {
+      "id": "s1",
+      "mediaId": "m1",
+      "sourceIn": 0.0,
+      "sourceOut": 3.0,
+      "words": [
+        {
+          "id": "w0",
+          "text": "item",
+          "start": 0.0,
+          "end": 0.4,
+          "confidence": 0.95
+        },
+        {
+          "id": "w1",
+          "text": "potency",
+          "start": 0.4,
+          "end": 1.0,
+          "confidence": 0.95
+        },
+        {
+          "id": "w2",
+          "text": "aren’t",
+          "start": 1.1,
+          "end": 1.8,
+          "confidence": 0.95
+        },
+        {
+          "id": "w3",
+          "text": "the",
+          "start": 2.0,
+          "end": 2.3,
+          "confidence": 0.95
+        },
+        {
+          "id": "w4",
+          "text": "old",
+          "start": 2.3,
+          "end": 2.6,
+          "confidence": 0.95
+        },
+        {
+          "id": "w5",
+          "text": "server.",
+          "start": 2.6,
+          "end": 3.0,
+          "confidence": 0.95
+        }
+      ],
+      "transcript": {
+        "version": 1,
+        "occurrenceId": "occurrence-1",
+        "originals": [
+          {
+            "id": "w0",
+            "text": "item",
+            "start": 0.0,
+            "end": 0.4,
+            "confidence": 0.95
+          },
+          {
+            "id": "w1",
+            "text": "potency",
+            "start": 0.4,
+            "end": 1.0,
+            "confidence": 0.95
+          },
+          {
+            "id": "w2",
+            "text": "aren’t",
+            "start": 1.1,
+            "end": 1.8,
+            "confidence": 0.95
+          },
+          {
+            "id": "w3",
+            "text": "the",
+            "start": 2.0,
+            "end": 2.3,
+            "confidence": 0.95
+          },
+          {
+            "id": "w4",
+            "text": "old",
+            "start": 2.3,
+            "end": 2.6,
+            "confidence": 0.95
+          },
+          {
+            "id": "w5",
+            "text": "server.",
+            "start": 2.6,
+            "end": 3.0,
+            "confidence": 0.95
+          }
+        ],
+        "blocks": [
+          {
+            "id": "block-1",
+            "runs": [
+              {
+                "id": "r1",
+                "text": "idempotency",
+                "separatorBefore": "",
+                "anchorIds": [
+                  "w0",
+                  "w1"
+                ],
+                "provenance": {
+                  "author": "script",
+                  "recordId": "automatic-example"
+                }
+              },
+              {
+                "id": "r2",
+                "text": "are not",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w2"
+                ],
+                "provenance": {
+                  "author": "manual"
+                }
+              },
+              {
+                "id": "r3",
+                "text": "the",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w3"
+                ]
+              },
+              {
+                "id": "r4",
+                "text": "",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w4"
+                ],
+                "provenance": {
+                  "author": "manual"
+                }
+              },
+              {
+                "id": "r5",
+                "text": "serveur.",
+                "separatorBefore": " ",
+                "anchorIds": [
+                  "w5"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "s2",
+      "mediaId": "m1",
+      "sourceIn": 0.0,
+      "sourceOut": 3.0,
+      "words": [
+        {
+          "id": "w0",
+          "text": "item",
+          "start": 0.0,
+          "end": 0.4,
+          "confidence": 0.95
+        },
+        {
+          "id": "w1",
+          "text": "potency",
+          "start": 0.4,
+          "end": 1.0,
+          "confidence": 0.95
+        },
+        {
+          "id": "w2",
+          "text": "aren’t",
+          "start": 1.1,
+          "end": 1.8,
+          "confidence": 0.95
+        },
+        {
+          "id": "w3",
+          "text": "the",
+          "start": 2.0,
+          "end": 2.3,
+          "confidence": 0.95
+        },
+        {
+          "id": "w4",
+          "text": "old",
+          "start": 2.3,
+          "end": 2.6,
+          "confidence": 0.95
+        },
+        {
+          "id": "w5",
+          "text": "server.",
+          "start": 2.6,
+          "end": 3.0,
+          "confidence": 0.95
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "exportPreset": "youtube-1080p",
+    "paddingMs": 80
+  },
+  "chapters": [],
+  "audioTracks": [],
+  "scriptAssistance": {
+    "version": 1,
+    "activeRevision": "dc291cab572575cba2ef7565544287998e9feeb022b4566d6f04490a34d30f5b",
+    "scripts": [
+      {
+        "revision": "911cb9a4e7290b11a4745d69fc6c467fe9b0400a463c631a59837a1e0d6d50a5",
+        "name": "first.md",
+        "markdown": "# Sample 👋\n\nidempotency are not the server.\n\nA spoken aside.\n"
+      },
+      {
+        "revision": "dc291cab572575cba2ef7565544287998e9feeb022b4566d6f04490a34d30f5b",
+        "name": "updated.md",
+        "markdown": "# Sample 👋\n\nidempotency are not the server.\n\nA spoken aside.\n\nUpdated spoken line.\n"
+      }
+    ],
+    "records": [
+      {
+        "policy": "synthetic-example-v1",
+        "scriptRevision": "911cb9a4e7290b11a4745d69fc6c467fe9b0400a463c631a59837a1e0d6d50a5",
+        "mediaId": "m1",
+        "occurrenceLineage": "occurrence-1",
+        "anchorIds": [
+          "w0",
+          "w1"
+        ],
+        "beforeText": "item potency",
+        "afterText": "idempotency",
+        "contextBefore": "",
+        "contextAfter": " are not the serveur.",
+        "sourceIn": 0.0,
+        "sourceOut": 1.0,
+        "scriptFrom": 13,
+        "scriptTo": 24,
+        "kind": "wording",
+        "status": "applied",
+        "reason": "Synthetic schema example; not acoustic evaluation evidence.",
+        "evidence": {
+          "engine": "synthetic-fixture",
+          "model": "none",
+          "policy": "synthetic-example-v1",
+          "unprompted": "idempotency"
+        },
+        "id": "automatic-example"
+      },
+      {
+        "policy": "synthetic-example-v1",
+        "scriptRevision": "911cb9a4e7290b11a4745d69fc6c467fe9b0400a463c631a59837a1e0d6d50a5",
+        "mediaId": "m1",
+        "occurrenceLineage": "occurrence-1",
+        "anchorIds": [
+          "w5"
+        ],
+        "beforeText": "serveur.",
+        "afterText": "server.",
+        "contextBefore": "idempotency are not the ",
+        "contextAfter": "",
+        "sourceIn": 2.6,
+        "sourceOut": 3.0,
+        "scriptFrom": 13,
+        "scriptTo": 24,
+        "kind": "wording",
+        "status": "suggested",
+        "reason": "Synthetic schema example; not acoustic evaluation evidence.",
+        "evidence": {
+          "engine": "synthetic-fixture",
+          "model": "none",
+          "policy": "synthetic-example-v1",
+          "unprompted": "idempotency"
+        },
+        "id": "old-pending-example",
+        "historicalReason": "Script replaced; run reconciliation again."
+      },
+      {
+        "policy": "synthetic-example-v1",
+        "scriptRevision": "dc291cab572575cba2ef7565544287998e9feeb022b4566d6f04490a34d30f5b",
+        "mediaId": "m1",
+        "occurrenceLineage": "occurrence-1",
+        "anchorIds": [
+          "w5"
+        ],
+        "beforeText": "serveur.",
+        "afterText": "server.",
+        "contextBefore": "idempotency are not the ",
+        "contextAfter": "",
+        "sourceIn": 2.6,
+        "sourceOut": 3.0,
+        "scriptFrom": 13,
+        "scriptTo": 24,
+        "kind": "wording",
+        "status": "suggested",
+        "reason": "Synthetic schema example; not acoustic evaluation evidence.",
+        "evidence": {
+          "engine": "synthetic-fixture",
+          "model": "none",
+          "policy": "synthetic-example-v1",
+          "unprompted": "idempotency"
+        },
+        "id": "pending-example"
+      },
+      {
+        "policy": "synthetic-example-v1",
+        "scriptRevision": "dc291cab572575cba2ef7565544287998e9feeb022b4566d6f04490a34d30f5b",
+        "mediaId": "m1",
+        "occurrenceLineage": "occurrence-1",
+        "anchorIds": [
+          "w3"
+        ],
+        "beforeText": "the",
+        "afterText": "the",
+        "contextBefore": "idempotency are not ",
+        "contextAfter": " serveur.",
+        "sourceIn": 2.0,
+        "sourceOut": 2.3,
+        "scriptFrom": 13,
+        "scriptTo": 24,
+        "kind": "off-script",
+        "status": "off-script",
+        "reason": "Synthetic schema example; not acoustic evaluation evidence.",
+        "evidence": {
+          "engine": "synthetic-fixture",
+          "model": "none",
+          "policy": "synthetic-example-v1",
+          "unprompted": "idempotency"
+        },
+        "id": "off-script-example"
+      }
+    ]
+  }
+}
