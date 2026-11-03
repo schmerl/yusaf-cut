@@ -656,7 +656,9 @@
   color: hsl(var(--muted-foreground));
 }
 .timeline-header {
-  height: 36px;
+  min-height: 36px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -669,6 +671,9 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+.timeline-range-controls { display: flex; gap: 8px; }
+.timeline-range-controls label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.timeline-range-controls input { width: 78px; padding: 3px; border: 1px solid hsl(var(--border)); border-radius: 4px; background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .timeline-title {
   display: flex;
   align-items: center;
@@ -833,6 +838,9 @@
   filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.35));
 }
 .timeline-marker span {
+  pointer-events: auto;
+  cursor: ew-resize;
+  user-select: none;
   position: absolute;
   left: -10px;
   top: 2px;

@@ -34,6 +34,8 @@ import { useAppCommands } from "@/lib/appCommands";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { isVocalFillerOnly } from "@/lib/scriptMatching";
 import { locateScriptRecord } from "@/lib/scriptLifecycle";
+import { buildTranscriptCut } from "@/lib/transcriptCut";
+import { TranscriptCutPopover, type TranscriptCutSelection } from "./TranscriptCutPopover";
 
 const TimedParagraph = Paragraph.extend({
   addAttributes() {
@@ -153,6 +155,10 @@ export function TranscriptEditor({
     current: number;
   } | null>(null);
   const [inspection, setInspection] = useState<{ project: Project; range: TextRange } | null>(null);
+  const [cutSelection, setCutSelection] = useState<TranscriptCutSelection | null>(null);
+  const cutSelectionRef = useRef(cutSelection);
+  cutSelectionRef.current = cutSelection;
+  const closeCut = useCallback(() => setCutSelection(null), []);
   const onSearchResults = useCallback(
     (project: Project, matches: TranscriptMatch[], current: number) => {
       searchResults.current = { project, matches, current };
@@ -176,7 +182,29 @@ export function TranscriptEditor({
       if (composed.current) throw new Error("Finish typing before cutting speech.");
       const ranges = actionRanges(editor);
       if (!ranges.length) throw new Error("Select the words or complete corrected phrase to cut.");
-      useProjectStore.getState().cutSpeech(ranges, model.current);
+      buildTranscriptCut(model.current, ranges);
+      let anchorPosition = editor.state.selection.from;
+      editor.state.doc.forEach((node, pos) => {
+        if (
+          node.attrs.segmentId === ranges[0]!.segmentId &&
+          node.attrs.blockId === ranges[0]!.blockId
+        )
+          anchorPosition = pos + 1 + ranges[0]!.from;
+      });
+      selectReviewTarget(null);
+      useFillerAuditionStore.getState().stop();
+      setCutSelection({
+        project: model.current,
+        session: projectSession(),
+        ranges: ranges.map((range) => ({ ...range })),
+        anchor: () => {
+          try {
+            return editor.view.coordsAtPos(anchorPosition);
+          } catch {
+            return editor.view.dom.getBoundingClientRect();
+          }
+        },
+      });
       setError("");
     } catch (error) {
       report(error);
@@ -305,8 +333,12 @@ export function TranscriptEditor({
                         { key: `${block.segmentId}:${block.id}:time`, side: -1 },
                       ),
                     );
-                    if (leavingEditor.current) {
-                      for (const range of selectionRef.current) {
+                    const cutRanges =
+                      cutSelectionRef.current?.project === model.current
+                        ? cutSelectionRef.current.ranges
+                        : null;
+                    if (cutRanges || leavingEditor.current) {
+                      for (const range of cutRanges ?? selectionRef.current) {
                         if (
                           range.segmentId === block.segmentId &&
                           range.blockId === block.id &&
@@ -668,7 +700,7 @@ export function TranscriptEditor({
   useEffect(() => {
     if (editor && !editor.isDestroyed)
       editor.view.dispatch(editor.state.tr.setMeta("passageSelection", true));
-  }, [editor, selection]);
+  }, [editor, selection, cutSelection]);
   useEffect(() => {
     if (!editor) return;
     if (composed.current) {
@@ -803,6 +835,13 @@ export function TranscriptEditor({
   return (
     <div className="flex h-full w-full flex-col">
       {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} onResults={onSearchResults} />}
+      {cutSelection && (
+        <TranscriptCutPopover
+          selection={cutSelection}
+          onClose={closeCut}
+          isComposing={() => composed.current}
+        />
+      )}
       <InlineReview
         selection={selection}
         isComposing={() => composed.current}
@@ -826,7 +865,7 @@ export function TranscriptEditor({
                 size="sm"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => editor && cut(editor)}
-                title="Remove selected audio/video (⌘⇧X)"
+                title="Preview and adjust selected audio/video cut (⌘⇧X)"
               >
                 Cut speech
               </Button>

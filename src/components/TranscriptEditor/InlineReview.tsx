@@ -31,7 +31,7 @@ export interface ReviewTarget {
   kind: "script" | "filler";
   id: string;
 }
-export function selectReviewTarget(target: ReviewTarget) {
+export function selectReviewTarget(target: ReviewTarget | null) {
   window.dispatchEvent(new CustomEvent("yusafcut:review-item", { detail: target }));
 }
 type Item = ReviewTarget & {

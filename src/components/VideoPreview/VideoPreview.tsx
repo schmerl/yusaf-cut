@@ -264,6 +264,20 @@ export function VideoPreview() {
     [activeMediaId, outputDuration, project, setCurrentTime],
   );
 
+  const beginPlayback = useCallback(() => {
+    const player = usePlayerStore.getState();
+    const { timelineMarkIn: markIn, timelineMarkOut: markOut } = player;
+    if (markIn !== null && markOut !== null && markIn !== markOut) {
+      const from = Math.min(markIn, markOut),
+        to = Math.max(markIn, markOut);
+      if (player.currentTime < from || player.currentTime >= to) {
+        seekToOutputTime(from, { play: true });
+        if (outputTimeToSource(project, from)?.segment.mediaId !== activeMediaId) return;
+      }
+    }
+    playVideo();
+  }, [activeMediaId, playVideo, project, seekToOutputTime]);
+
   // `precise` is the frame-accurate `mediaTime` from requestVideoFrameCallback
   // when available; falling back to `el.currentTime` (which can lag a frame).
   // Passing it explicitly removes one source of jitter in the word/timeline
@@ -301,6 +315,29 @@ export function VideoPreview() {
         index++;
       const entry = timeline[index]!;
       playbackSegmentRef.current = entry.segmentId;
+
+      const player = usePlayerStore.getState();
+      const { timelineMarkIn: markIn, timelineMarkOut: markOut } = player;
+      if (
+        (playIntentRef.current || player.playing) &&
+        markIn !== null &&
+        markOut !== null &&
+        markIn !== markOut
+      ) {
+        const from = Math.min(markIn, markOut),
+          to = Math.max(markIn, markOut);
+        const position =
+          entry.outputStart + Math.max(0, Math.min(srcTime, entry.sourceOut) - entry.sourceIn);
+        if (position >= to) {
+          pauseVideo();
+          seekToOutputTime(to, { play: false });
+          return;
+        }
+        if (position < from) {
+          seekToOutputTime(from, { play: true });
+          return;
+        }
+      }
 
       if (srcTime >= entry.sourceIn && srcTime < entry.sourceOut) {
         setCurrentTime(entry.outputStart + srcTime - entry.sourceIn);
@@ -473,7 +510,7 @@ export function VideoPreview() {
     function onPlay() {
       useFillerAuditionStore.getState().stop();
       if (editLocked()) return;
-      playVideo();
+      beginPlayback();
     }
     function onPause() {
       pauseVideo();
@@ -481,7 +518,7 @@ export function VideoPreview() {
     function onToggle() {
       useFillerAuditionStore.getState().stop();
       if (usePlayerStore.getState().playing) pauseVideo();
-      else if (!editLocked()) playVideo();
+      else if (!editLocked()) beginPlayback();
     }
     function onSeekOutput(e: Event) {
       useFillerAuditionStore.getState().stop();
@@ -492,7 +529,7 @@ export function VideoPreview() {
         wantsPlay &&
         activeMediaId === outputTimeToSource(project, ce.detail.time)?.segment.mediaId
       ) {
-        playVideo();
+        beginPlayback();
       }
     }
 
@@ -506,7 +543,7 @@ export function VideoPreview() {
       window.removeEventListener("yusafcut:toggle-play", onToggle);
       window.removeEventListener("yusafcut:seek-output", onSeekOutput);
     };
-  }, [activeMediaId, pauseVideo, playVideo, project, seekToOutputTime]);
+  }, [activeMediaId, pauseVideo, beginPlayback, project, seekToOutputTime]);
 
   // If a heavy edit starts while playing, pause immediately so playback can't
   // run against a timeline that is being rebuilt.
@@ -571,8 +608,9 @@ export function VideoPreview() {
       return;
     }
     if (isProcessingEdit) return; // locked while a heavy edit is processing
-    seekToSelectedWord();
-    playVideo();
+    const { timelineMarkIn, timelineMarkOut } = usePlayerStore.getState();
+    if (timelineMarkIn === null || timelineMarkOut === null) seekToSelectedWord();
+    beginPlayback();
   };
 
   // Display duration: use source duration in free-play mode, output duration otherwise

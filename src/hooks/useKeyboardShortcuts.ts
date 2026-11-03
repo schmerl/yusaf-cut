@@ -14,6 +14,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore, useTemporalProjectStore, endTypingGroup } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import { wordIdToOutputTime, wordIdsInOutputRange } from "@/lib/edl";
+import { cutTimelineSelection } from "@/lib/appCommands";
 
 function isMac() {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -47,10 +48,8 @@ export function useKeyboardShortcuts() {
         const player = usePlayerStore.getState();
         try {
           if (player.timelineMarkIn !== null && player.timelineMarkOut !== null) {
-            useProjectStore
-              .getState()
-              .deleteOutputRange(player.timelineMarkIn, player.timelineMarkOut);
-            player.clearTimelineRange();
+            cutTimelineSelection();
+            return;
           } else if (player.selectedWordIds.size) {
             useProjectStore.getState().deleteWords(player.selectedWordIds);
           }
@@ -88,6 +87,22 @@ export function useKeyboardShortcuts() {
         e.preventDefault();
         const s = usePlayerStore.getState();
         const willPause = s.playing;
+        if (
+          !willPause &&
+          s.timelineMarkIn !== null &&
+          s.timelineMarkOut !== null &&
+          s.timelineMarkIn !== s.timelineMarkOut
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("yusafcut:seek-output", {
+              detail: {
+                time: Math.min(s.timelineMarkIn, s.timelineMarkOut),
+                play: true,
+              },
+            }),
+          );
+          return;
+        }
         if (!s.playing && s.selectedWordIds.size > 0) {
           const project = useProjectStore.getState().project;
           let best: ReturnType<typeof wordIdToOutputTime> = null;
