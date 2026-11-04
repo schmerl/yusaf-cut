@@ -115,6 +115,28 @@ describe("editable transcript with real ProseMirror transactions", () => {
     expect(screen.queryByRole("dialog", { name: "Cut selected speech" })).toBeNull();
     expect(useFillerAuditionStore.getState().request).toBeNull();
   });
+  it("previews and cuts a whole passage with its trailing audio, leaving no orphan clip", () => {
+    const p = useProjectStore.getState().project;
+    replaceProjectBaseline({
+      ...p,
+      segments: [{ ...p.segments[0]!, sourceOut: 3.4 }, p.segments[1]!],
+    });
+    render(<Harness />);
+    const before = useProjectStore.getState().project;
+    act(() => editor().commands.setTextSelection({ from: 1, to: 1 + text().length }));
+    fireEvent.click(screen.getByRole("button", { name: "Cut speech" }));
+    const popup = within(screen.getByRole("dialog", { name: "Cut selected speech" }));
+    expect(popup.getByRole("spinbutton", { name: "Cut end offset" })).toHaveValue(400);
+    fireEvent.click(popup.getByRole("button", { name: "Preview cut" }));
+    const preview = useFillerAuditionStore.getState().request!.timeline;
+    expect(preview.segments).toHaveLength(1);
+    expect(preview.segments[0]!.id).toBe("s2");
+    expect(totalDuration(preview)).toBe(3);
+    fireEvent.click(popup.getByRole("button", { name: "Cut speech" }));
+    expect(useProjectStore.getState().project).toBe(preview);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(useProjectStore.getState().project).toBe(before);
+  });
   it("opens from the menu command, warns about overlaps without disabling the cut, and cancels without an edit", () => {
     render(<Harness />);
     const before = useProjectStore.getState().project;

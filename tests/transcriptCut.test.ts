@@ -22,7 +22,7 @@ describe("direct transcript cut proposals", () => {
     expect(projectTranscript(proposal.result)[0]!.text).not.toContain("idempotency");
     expect(proposal.result.segments.at(-1)).toEqual(project.segments.at(-1));
     expect(project).toEqual(before);
-    expect(proposal.warning).toBeUndefined();
+    expect(proposal.warning).toMatch(/keep 0.050 seconds.*without transcript text/);
     validateProjectTranscripts(proposal.result);
   });
   it("warns when adjustments clip neighboring speech, including text-hidden words", () => {
@@ -85,5 +85,83 @@ describe("direct transcript cut proposals", () => {
     const all = buildTranscriptCut(project, ranges);
     expect(totalDuration(all.result)).toBe(0);
     expect(all.result.segments).toEqual([]);
+  });
+  it("removes a selected clip's untranscribed edges and adjacent remnants from the same occurrence", () => {
+    const p = structuredClone(fixture) as Project;
+    const segment = {
+      id: "take",
+      mediaId: "m1",
+      sourceIn: 1,
+      sourceOut: 2.5,
+      occurrenceLineage: "selected-take",
+      words: [
+        { id: "one", text: "Remove", start: 1.2, end: 1.5, confidence: 1 },
+        { id: "two", text: "this.", start: 1.6, end: 1.9, confidence: 1 },
+      ],
+    };
+    const head = { ...segment, id: "head-remnant", sourceIn: 0.8, sourceOut: 1, words: [] };
+    const tail = { ...segment, id: "tail-remnant", sourceIn: 2.5, sourceOut: 2.7, words: [] };
+    const reused = { ...segment, id: "reused", occurrenceLineage: "different-take" };
+    p.segments = [head, segment, tail, reused];
+    const before = structuredClone(p);
+    const block = projectTranscript(p)[0]!;
+    const range = { segmentId: block.segmentId, blockId: block.id, from: 0, to: block.text.length };
+    const proposal = buildTranscriptCut(p, [range]);
+    expect(proposal.result.segments).toEqual([reused]);
+    expect(totalDuration(p) - totalDuration(proposal.result)).toBeCloseTo(1.9);
+    expect(proposal.warning).toBeUndefined();
+    expect(p).toEqual(before);
+    const reopened = JSON.parse(JSON.stringify(proposal.result)) as Project;
+    validateProjectTranscripts(reopened);
+    expect(reopened.segments).toEqual([reused]);
+    // Blank clips belonging to other occurrences are independent edits.
+    p.segments = [
+      { ...head, occurrenceLineage: "other-head" },
+      segment,
+      { ...tail, occurrenceLineage: "other-tail" },
+      reused,
+    ];
+    expect(buildTranscriptCut(p, [range]).result.segments.map((s) => s.id)).toEqual([
+      head.id,
+      tail.id,
+      reused.id,
+    ]);
+  });
+  it("uses gaps around kept words for default boundaries, preserving their padding and hidden speech", () => {
+    const { project, block, range } = setup();
+    const target = block.runs.find((run) => run.text === "are not")!;
+    const proposal = buildTranscriptCut(project, [{ ...range, from: target.from, to: target.to }]);
+    expect(proposal.cutStart).toBeCloseTo(1.08);
+    expect(proposal.cutEnd).toBeCloseTo(1.92);
+    expect(proposal.result.segments.every((segment) => segment.words.length > 0)).toBe(true);
+    expect(
+      projectTranscript(proposal.result)
+        .flatMap((b) => b.runs)
+        .some((r) => r.originalText === "old" && r.text === ""),
+    ).toBe(true);
+    expect(proposal.warning).toBeUndefined();
+    validateProjectTranscripts(proposal.result);
+  });
+  it("honors deliberately retained edges and warns about their audio", () => {
+    const p = structuredClone(fixture) as Project;
+    p.segments = [
+      {
+        id: "take",
+        mediaId: "m1",
+        sourceIn: 1,
+        sourceOut: 2,
+        words: [{ id: "one", text: "Remove.", start: 1.2, end: 1.7, confidence: 1 }],
+      },
+    ];
+    const block = projectTranscript(p)[0]!;
+    const range = { segmentId: block.segmentId, blockId: block.id, from: 0, to: block.text.length };
+    const clean = buildTranscriptCut(p, [range]);
+    expect(clean.result.segments).toEqual([]);
+    expect(buildTranscriptCut(p, [range], clean.offsets).result.segments).toEqual([]);
+    const custom = buildTranscriptCut(p, [range], { startMs: 50, endMs: -50 });
+    expect(custom.cutStart).toBeCloseTo(1.25 - 1); // output time, relative to this trimmed clip
+    expect(custom.cutEnd).toBeCloseTo(1.65 - 1);
+    expect(totalDuration(custom.result)).toBeCloseTo(0.6);
+    expect(custom.warning).toMatch(/keep 0.600 seconds.*without transcript text/);
   });
 });

@@ -26,7 +26,9 @@ export function TranscriptCutPopover({
 }) {
   const project = useProjectStore((state) => state.project);
   const session = useProjectStore(() => projectSession());
-  const [offsets, setOffsets] = useState({ startMs: 0, endMs: 0 });
+  const [offsets, setOffsets] = useState(
+    () => buildTranscriptCut(selection.project, selection.ranges).offsets,
+  );
   const [error, setError] = useState("");
   const [position, setPosition] = useState({ left: 8, top: 8 });
   const popup = useRef<HTMLDivElement>(null);
@@ -52,7 +54,7 @@ export function TranscriptCutPopover({
     if (project !== selection.project || session !== selection.session) onClose();
   }, [project, session, selection, onClose]);
   useEffect(() => {
-    setOffsets({ startMs: 0, endMs: 0 });
+    setOffsets(buildTranscriptCut(selection.project, selection.ranges).offsets);
     setError("");
     popup.current?.focus();
     return () => stop();
@@ -120,7 +122,7 @@ export function TranscriptCutPopover({
               step="10"
               className="w-20 ml-2"
               aria-label={side === "startMs" ? "Cut start offset" : "Cut end offset"}
-              value={Number.isNaN(offsets[side]) ? "" : offsets[side]}
+              value={Number.isNaN(offsets[side]) ? "" : Number(offsets[side].toFixed(3))}
               onChange={(event) => {
                 stop();
                 setError("");
@@ -136,6 +138,9 @@ export function TranscriptCutPopover({
       <p className="text-xs text-muted-foreground">
         Negative offsets move a boundary earlier; positive offsets move it later. Text is removed
         for the whole selection.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Defaults include untranscribed edges while keeping padding around neighboring words.
       </p>
       {proposal.value && (
         <p className="my-2 text-xs" aria-label="Proposed cut duration">
