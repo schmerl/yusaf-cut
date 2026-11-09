@@ -12,6 +12,7 @@
 import { type Project, type Word } from "./edl";
 import { projectTranscript } from "./transcript";
 import { captionSectionStarts } from "./captionSections";
+import type { CodeSpan } from "./scriptCodeFormatting";
 
 const GAP_S = 2;
 const MAX_CUE_S = 7;
@@ -27,6 +28,8 @@ export interface CaptionCue {
   end: number;
   /** Cleaned-up text, no leading/trailing whitespace. */
   text: string;
+  /** Ranges in displayed text, including quotation marks, for VTT bold markup. */
+  codeSpans?: { from: number; to: number }[];
 }
 
 interface OutputWord {
@@ -34,6 +37,7 @@ interface OutputWord {
   separatorBefore: string;
   start: number; // output-time
   end: number;
+  codeSpans?: CodeSpan[];
 }
 
 /**
@@ -60,6 +64,15 @@ export function flattenWordsInOutputTime(project: Project): OutputWord[] {
           separatorBefore,
           start: run.outputStart,
           end: run.outputEnd,
+          codeSpans: block.codeSpans
+            ?.filter((span) => span.from < run.to && span.to > run.from)
+            .map((span) => ({
+              from: Math.max(0, span.from - run.from),
+              to: Math.min(run.text.length, span.to - run.from),
+              quote: span.quote,
+              open: span.open !== false && span.from >= run.from,
+              close: span.close !== false && span.to <= run.to,
+            })),
         };
       });
   });
@@ -139,21 +152,62 @@ function balancePassage(words: OutputWord[]): OutputWord[][] {
   return groups;
 }
 
+interface DisplayCharacter {
+  text: string;
+  code: boolean;
+}
+function cueCharacters(words: OutputWord[]): DisplayCharacter[] {
+  const raw: DisplayCharacter[] = [];
+  words.forEach((word, index) => {
+    if (index) for (const text of word.separatorBefore) raw.push({ text, code: false });
+    const spans = word.codeSpans ?? [];
+    for (let i = 0; i < word.word.text.length; i++) {
+      if (spans.some((span) => span.from === i && span.quote && span.open !== false))
+        raw.push({ text: '"', code: true });
+      raw.push({
+        text: word.word.text[i]!,
+        code: spans.some((span) => span.from <= i && span.to > i),
+      });
+      if (spans.some((span) => span.to === i + 1 && span.quote && span.close !== false))
+        raw.push({ text: '"', code: true });
+    }
+  });
+  const result: DisplayCharacter[] = [];
+  let space = false;
+  for (const character of raw) {
+    if (/\s/u.test(character.text)) {
+      space = true;
+      continue;
+    }
+    if (space && result.length && !/[.,!?;:]/u.test(character.text))
+      result.push({ text: " ", code: result.at(-1)!.code && character.code });
+    space = false;
+    result.push(character);
+  }
+  return result;
+}
 function cueText(words: OutputWord[]): string {
-  return words
-    .map((w, i) => (i ? w.separatorBefore : "") + w.word.text)
-    .join("")
-    .replace(/\s+([.,!?;:])/g, "$1")
-    .replace(/\s+/gu, " ")
-    .trim();
+  return cueCharacters(words)
+    .map((character) => character.text)
+    .join("");
 }
 
 function makeCue(index: number, words: OutputWord[]): CaptionCue {
+  const characters = cueCharacters(words);
+  const text = wrapCaption(characters.map((character) => character.text).join(""));
+  const codeSpans: { from: number; to: number }[] = [];
+  characters.forEach((character, at) => {
+    if (!character.code) return;
+    const last = codeSpans.at(-1);
+    if (last?.to === at) last.to++;
+    else codeSpans.push({ from: at, to: at + 1 });
+  });
   return {
     index,
     start: words[0]!.start,
     end: words[words.length - 1]!.end,
-    text: wrapCaption(cueText(words)),
+    text,
+    ...(codeSpans.length ? { codeSpans } : {}),
   };
 }
 
@@ -244,7 +298,25 @@ export function buildVtt(project: Project): string {
   return (
     header +
     cues
-      .map((c) => `${formatVttTimestamp(c.start)} --> ${formatVttTimestamp(c.end)}\n${c.text}\n`)
+      .map(
+        (c) => `${formatVttTimestamp(c.start)} --> ${formatVttTimestamp(c.end)}\n${vttText(c)}\n`,
+      )
       .join("\n")
   );
+}
+
+function vttText(cue: CaptionCue): string {
+  const escape = (text: string) =>
+    text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  let result = "",
+    from = 0;
+  for (const span of cue.codeSpans ?? []) {
+    result +=
+      escape(cue.text.slice(from, span.from)) +
+      "<b>" +
+      escape(cue.text.slice(span.from, span.to)) +
+      "</b>";
+    from = span.to;
+  }
+  return result + escape(cue.text.slice(from));
 }

@@ -13,6 +13,8 @@ export interface ScriptPassage {
   from: number;
   to: number;
   text: string;
+  /** Inline-code ranges within extracted text (not Markdown source offsets). */
+  inlineCode: { from: number; to: number }[];
   section: string[];
   /** Source offset of the enclosing heading; distinguishes repeated titles. */
   sectionFrom: number;
@@ -190,14 +192,27 @@ export function parseScript(markdown: string): ParsedScript {
     if (token.type !== "inline") continue;
     // Image children/alt text, link destinations and markup tokens contribute
     // nothing. Inline code is literal. Lists/quotes are already structural.
-    const text = (token.children ?? [])
-      .map((child) => {
-        if (child.type === "text" || child.type === "code_inline") return child.content;
-        if (child.type === "softbreak" || child.type === "hardbreak") return " ";
-        return "";
-      })
-      .join("")
-      .trim();
+    let extracted = "";
+    const code: { from: number; to: number }[] = [];
+    for (const child of token.children ?? []) {
+      const part =
+        child.type === "text" || child.type === "code_inline"
+          ? child.content
+          : child.type === "softbreak" || child.type === "hardbreak"
+            ? " "
+            : "";
+      if (child.type === "code_inline")
+        code.push({ from: extracted.length, to: extracted.length + part.length });
+      extracted += part;
+    }
+    const leading = extracted.length - extracted.trimStart().length;
+    const text = extracted.trim();
+    const inlineCode = code
+      .map((span) => ({
+        from: Math.max(0, span.from - leading),
+        to: Math.min(text.length, span.to - leading),
+      }))
+      .filter((span) => span.to > span.from);
     if (heading) {
       sectionFrom = offset(token.map?.[0] ?? 0);
       while (section.length && section.at(-1)!.level >= heading) section.pop();
@@ -211,6 +226,7 @@ export function parseScript(markdown: string): ParsedScript {
       from,
       to,
       text,
+      inlineCode,
       section: section.map((s) => s.text),
       sectionFrom,
       ambiguous: issues.some((i) => i.from < to && i.to > from),

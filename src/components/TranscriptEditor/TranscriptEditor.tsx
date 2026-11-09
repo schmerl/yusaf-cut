@@ -399,6 +399,34 @@ export function TranscriptEditor({
                           }),
                         );
                     }
+                    for (const span of block.codeSpans ?? []) {
+                      decorations.push(
+                        Decoration.inline(pos + 1 + span.from, pos + 1 + span.to, {
+                          class: "transcript-code",
+                        }),
+                      );
+                      const quote = () => {
+                        const element = document.createElement("span");
+                        element.textContent = '"';
+                        element.contentEditable = "false";
+                        element.className = "transcript-code";
+                        return element;
+                      };
+                      if (span.quote && span.open !== false)
+                        decorations.push(
+                          Decoration.widget(pos + 1 + span.from, quote, {
+                            side: -1,
+                            key: `code-open:${block.id}:${span.from}`,
+                          }),
+                        );
+                      if (span.quote && span.close !== false)
+                        decorations.push(
+                          Decoration.widget(pos + 1 + span.to, quote, {
+                            side: 1,
+                            key: `code-close:${block.id}:${span.to}`,
+                          }),
+                        );
+                    }
                     for (const run of block.runs) {
                       if (run.from === run.to) continue;
                       const active =

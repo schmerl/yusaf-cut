@@ -1,4 +1,5 @@
 import { validateReviewLog } from "./reviewLog";
+import { scriptCodeSpans, type CodeSpan } from "./scriptCodeFormatting";
 /** Phase 1 foundations. Pure APIs; the legacy editor does not write overlays yet. */
 import { validateFillerReview } from "./fillerReview";
 import { validateScriptAssistance, type EditProvenance } from "./scriptAssistance";
@@ -48,6 +49,8 @@ export interface ProjectedBlock {
   mediaId: string;
   text: string;
   runs: ProjectedRun[];
+  /** Formatting projected from the active script; never literal HTML wording. */
+  codeSpans?: CodeSpan[];
 }
 
 function survivingWords(segment: Segment): Word[] {
@@ -220,7 +223,7 @@ export function normalizeProjectTranscripts(project: Project): Project {
 export function projectTranscript(project: Project): ProjectedBlock[] {
   const normalized = normalizeProjectTranscripts(project);
   const timeline = computeTimeline(normalized);
-  return normalized.segments.flatMap((segment, i) => {
+  const blocks: ProjectedBlock[] = normalized.segments.flatMap((segment, i) => {
     const metadata = segment.transcript;
     if (!metadata) return [];
     const entry = timeline[i]!;
@@ -257,5 +260,23 @@ export function projectTranscript(project: Project): ProjectedBlock[] {
         runs,
       };
     });
+  });
+  const spans = scriptCodeSpans(project, blocks.map((block) => block.text).join("\n"));
+  if (!spans.length) return blocks;
+  let offset = 0;
+  return blocks.map((block) => {
+    const start = offset,
+      end = start + block.text.length;
+    offset = end + 1;
+    const codeSpans = spans
+      .filter((span) => span.from < end && span.to > start)
+      .map((span) => ({
+        from: Math.max(0, span.from - start),
+        to: Math.min(block.text.length, span.to - start),
+        quote: span.quote,
+        open: span.from >= start,
+        close: span.to <= end,
+      }));
+    return codeSpans.length ? { ...block, codeSpans } : block;
   });
 }

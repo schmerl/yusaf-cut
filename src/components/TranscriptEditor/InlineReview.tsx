@@ -26,6 +26,7 @@ import { endTypingGroup, projectSession, useProjectStore } from "@/stores/projec
 import { startReviewAudition, useFillerAuditionStore } from "@/stores/fillerAuditionStore";
 import { dispatchCommand, useAppCommands } from "@/lib/appCommands";
 import type { ScriptReviewRecord } from "@/lib/scriptAssistance";
+import { quoteCodeText, scriptCodeSpans } from "@/lib/scriptCodeFormatting";
 
 export interface ReviewTarget {
   kind: "script" | "filler";
@@ -480,6 +481,20 @@ export function InlineReview({
     setCustomText(current?.record?.afterText ?? current?.filler?.text ?? "");
   }, [current?.id, current?.record?.afterText, current?.filler?.text]);
   const record = current?.record;
+  const afterText = useMemo(() => {
+    if (!record || !current) return record?.afterText ?? "";
+    const block = projectTranscript(project).find(
+      (b) => b.segmentId === current.segmentId && b.id === current.blockId,
+    );
+    if (!block) return record.afterText;
+    const proposed =
+      block.text.slice(0, current.from) + record.afterText + block.text.slice(current.to);
+    const end = current.from + record.afterText.length;
+    const spans = scriptCodeSpans(project, proposed)
+      .filter((span) => span.from >= current.from && span.to <= end)
+      .map((span) => ({ ...span, from: span.from - current.from, to: span.to - current.from }));
+    return quoteCodeText(record.afterText, spans);
+  }, [record, current, project]);
   const canCut = !!current?.filler || record?.status === "off-script";
   const title = current?.filler ? current.filler.text : record?.beforeText;
   const followingText = useMemo(
@@ -634,7 +649,7 @@ export function InlineReview({
                   {record && record.afterText !== record.beforeText && (
                     <>
                       {" "}
-                      <span aria-hidden>→</span> <strong>{record.afterText}</strong>
+                      <span aria-hidden>→</span> <strong>{afterText}</strong>
                     </>
                   )}
                 </p>
