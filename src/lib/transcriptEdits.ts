@@ -68,11 +68,11 @@ export function replaceTranscriptText(
   const replacement =
     block.text.slice(start, edit.from) + edit.text + block.text.slice(edit.to, end);
   const anchors = stored.runs.slice(first, last + 1).flatMap((r) => r.anchorIds);
-  const leading = first > 0 && replacement.trim() ? replacement.match(/^\s*/u)![0] : "";
+  const leading = first > 0 ? replacement.match(/^\s*/u)![0] : "";
   const run = {
     ...stored.runs[first]!,
     text: replacement.slice(leading.length),
-    separatorBefore: leading,
+    separatorBefore: replacement.trim() ? leading : stored.runs[first]!.separatorBefore,
     anchorIds: anchors,
     provenance,
   };

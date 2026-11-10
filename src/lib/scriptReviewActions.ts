@@ -162,7 +162,10 @@ export function bulkScriptPunctuation(
   );
   for (const { record } of eligible)
     next = logScriptReview(updateRecord(next, record.id, "accepted"), record, "accept");
-  return { project: reconcileScriptReview(next), count: eligible.length };
+  return {
+    project: reconcileScriptReview(rebaseReviewContexts(project, next)),
+    count: eligible.length,
+  };
 }
 
 export interface OffScriptCutProposal {
@@ -243,6 +246,7 @@ export function replaceScriptReviewText(project: Project, id: string, text: stri
     throw new Error("This passage changed. Select a current suggestion.");
   if (text.length > 100000 || /[\r\n\0]/u.test(text))
     throw new Error("Enter replacement text within one paragraph.");
+  text = text.trim();
   const next = replaceTranscriptText(
     project,
     {
@@ -287,17 +291,22 @@ export function revisitScriptReview(project: Project, id: string, revert = false
   if (revert) {
     if (record.status !== "accepted")
       throw new Error("Only an unchanged accepted replacement can be reverted here.");
-    const next = replaceTranscriptText(
-      project,
-      {
-        segmentId: location.block.segmentId,
-        blockId: location.block.id,
-        from: location.from,
-        to: location.to,
-        text: record.beforeText,
-      },
-      { author: "review", recordId: id },
-    );
+    // An empty replacement still owns its original anchors. An offset-only
+    // insertion would select the following visible run instead.
+    const next =
+      location.from === location.to
+        ? restoreHiddenReviewText(project, record, location)
+        : replaceTranscriptText(
+            project,
+            {
+              segmentId: location.block.segmentId,
+              blockId: location.block.id,
+              from: location.from,
+              to: location.to,
+              text: record.beforeText,
+            },
+            { author: "review", recordId: id },
+          );
     return logScriptReview(
       reconcileScriptReview(rebaseReviewContexts(project, updateRecord(next, id, "reverted"), id)),
       record,
@@ -332,4 +341,48 @@ export function revisitScriptReview(project: Project, id: string, revert = false
     },
   };
   return logScriptReview(reopened, record, "reopen");
+}
+
+function restoreHiddenReviewText(
+  project: Project,
+  record: NonNullable<Project["scriptAssistance"]>["records"][number],
+  location: NonNullable<ReturnType<typeof locateScriptRecord>>,
+): Project {
+  const normalized = normalizeProjectTranscripts(project);
+  const anchors = new Set(record.anchorIds);
+  return {
+    ...normalized,
+    segments: normalized.segments.map((segment) =>
+      segment.id !== location.block.segmentId
+        ? segment
+        : {
+            ...segment,
+            transcript: {
+              ...segment.transcript!,
+              blocks: segment.transcript!.blocks.map((block) => {
+                if (block.id !== location.block.id) return block;
+                const first = block.runs.findIndex((run) =>
+                  run.anchorIds.some((id) => anchors.has(id)),
+                );
+                return {
+                  ...block,
+                  runs: block.runs.flatMap((run, index) => {
+                    if (!run.anchorIds.some((id) => anchors.has(id))) return [run];
+                    return index === first
+                      ? [
+                          {
+                            ...run,
+                            text: record.beforeText,
+                            anchorIds: [...record.anchorIds],
+                            provenance: { author: "review" as const, recordId: record.id },
+                          },
+                        ]
+                      : [];
+                  }),
+                };
+              }),
+            },
+          },
+    ),
+  };
 }
