@@ -13,6 +13,7 @@ export type AppCommand =
   | "captions"
   | "snapshots"
   | "script"
+  | "script-sync"
   | "find"
   | "review-script"
   | "review-selected"
@@ -48,12 +49,10 @@ export function cutTimelineSelection() {
       .getState()
       .deleteOutputRange(player.timelineMarkIn, player.timelineMarkOut);
     if (!changed) {
-      useUIStore
-        .getState()
-        .pushToast({
-          title: "Nothing to cut",
-          description: "This range contains no media to remove.",
-        });
+      useUIStore.getState().pushToast({
+        title: "Nothing to cut",
+        description: "This range contains no media to remove.",
+      });
       return;
     }
     window.dispatchEvent(new CustomEvent("yusafcut:pause"));
@@ -61,13 +60,11 @@ export function cutTimelineSelection() {
     player.clearTimelineRange();
     player.setSelectedWordIds([]);
   } catch (error) {
-    useUIStore
-      .getState()
-      .pushToast({
-        title: "Cannot cut speech",
-        description: error instanceof Error ? error.message : String(error),
-        variant: "destructive",
-      });
+    useUIStore.getState().pushToast({
+      title: "Cannot cut speech",
+      description: error instanceof Error ? error.message : String(error),
+      variant: "destructive",
+    });
   }
 }
 export function useAppCommands(handlers: Partial<Record<AppCommand, () => void>>) {

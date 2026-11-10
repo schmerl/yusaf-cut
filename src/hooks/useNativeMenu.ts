@@ -83,6 +83,7 @@ export function useNativeMenu() {
             items: [
               await command("review-script", "Find Script Differences"),
               await command("review-selected", "Find Differences in Selection"),
+              await command("script-sync", "Sync Script and Transcript…"),
               await command("review-fillers", "Review Fillers"),
               await command("review-log", "Review Log…"),
               await command("review-next", "Next Suggestion", "Alt+ArrowDown"),
@@ -115,7 +116,7 @@ export function useNativeMenu() {
         for (const item of items) {
           const enabled =
             item.id.startsWith("review-") ||
-            ["format-script", "original", "cut-speech"].includes(item.id)
+            ["format-script", "original", "cut-speech", "script-sync"].includes(item.id)
               ? hasWords && (!["format-script"].includes(item.id) || !!project.scriptAssistance)
               : ["export", "captions", "script"].includes(item.id)
                 ? project.segments.length > 0

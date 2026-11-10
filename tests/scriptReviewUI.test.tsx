@@ -12,6 +12,7 @@ import { buildCues } from "@/lib/captions";
 import { totalDuration, type Project } from "@/lib/edl";
 import fixture from "./fixtures/script-assistance.json";
 import { projectTranscript } from "@/lib/transcript";
+import { scriptSections, setScriptSync } from "@/lib/scriptSync";
 import { selectReviewTarget } from "@/components/TranscriptEditor/InlineReview";
 
 beforeEach(() => {
@@ -65,6 +66,15 @@ describe("inline transcript review", () => {
     },
   );
   it("returns whole/selected analysis to the combined chain including fillers", async () => {
+    const p = useProjectStore.getState().project;
+    const b = projectTranscript(p)[0]!;
+    replaceProjectBaseline(
+      setScriptSync(
+        p,
+        [{ segmentId: b.segmentId, blockId: b.id, from: 0, to: b.text.length }],
+        scriptSections(p)[0]!,
+      ),
+    );
     vi.spyOn(workflow, "runScriptReconciliation").mockResolvedValue({
       applied: 0,
       pending: 0,
@@ -291,3 +301,25 @@ describe("inline transcript review", () => {
     expect(popover.getByText(/resolved or its passage changed/)).toBeTruthy();
   });
 });
+
+it.each(["toolbar", "native menu"])(
+  "opens automatic script sync from %s Find differences when no pairings are saved",
+  (route) => {
+    const reconcile = vi.spyOn(workflow, "runScriptReconciliation");
+    const command = vi.fn();
+    window.addEventListener("yusafcut:command", command);
+    try {
+      const before = useProjectStore.getState().project;
+      open();
+      if (route === "toolbar")
+        fireEvent.click(screen.getByRole("button", { name: "Find differences" }));
+      else act(() => dispatchCommand("review-script"));
+      expect(command.mock.calls.some(([event]) => event.detail === "script-sync")).toBe(true);
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(useProjectStore.getState().project).toBe(before);
+      expect(screen.getByRole("status")).toHaveTextContent("Review the automatic slide matches");
+    } finally {
+      window.removeEventListener("yusafcut:command", command);
+    }
+  },
+);

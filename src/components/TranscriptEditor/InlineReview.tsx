@@ -412,6 +412,14 @@ export function InlineReview({
       setError("Select a passage first.");
       return;
     }
+    if (!selectedOnly && !audio && !project.scriptAssistance.syncLinks?.length) {
+      stop();
+      dispatchCommand("script-sync");
+      setNotice(
+        "Review the automatic slide matches and save a pairing before finding differences.",
+      );
+      return;
+    }
     const request = createScriptRun(),
       captured = projectSession();
     run.current = request;
@@ -540,6 +548,14 @@ export function InlineReview({
         </select>
         <Button size="sm" variant="ghost" disabled={!queue.length} onClick={() => step(-1)}>
           Previous
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => dispatchCommand("script-sync")}
+        >
+          Sync script…
         </Button>
         <span className="text-xs text-muted-foreground">
           {index >= 0 ? `${index + 1} / ${queue.length}` : `${queue.length} remaining`}

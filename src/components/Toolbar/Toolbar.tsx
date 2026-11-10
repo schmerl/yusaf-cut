@@ -152,6 +152,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const displayName = filePath?.split(/[\\/]/).pop() ?? `${project.name}.scribe`;
 
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false);
+  const [scriptSyncRequested, setScriptSyncRequested] = useState(false);
   const [openDialogVisible, setOpenDialogVisible] = useState(false);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -714,7 +715,11 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       // Corrections may finish while the native save dialog is open. Read the
       // current revision at serialization time, not the render's older snapshot.
       const current = useProjectStore.getState().project;
-      const content = isTxt ? buildUntimedTranscript(current) : isVtt ? buildVtt(current) : buildSrt(current);
+      const content = isTxt
+        ? buildUntimedTranscript(current)
+        : isVtt
+          ? buildVtt(current)
+          : buildSrt(current);
       await writeTextFile(outPath, content);
       pushToast({
         title: isTxt ? "Untimed transcript exported" : isVtt ? "WebVTT exported" : "SRT exported",
@@ -739,7 +744,14 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   }, [handleSave, handleExport]);
 
   useAppCommands({
-    script: () => setScriptDialogOpen(true),
+    script: () => {
+      setScriptSyncRequested(false);
+      setScriptDialogOpen(true);
+    },
+    "script-sync": () => {
+      setScriptSyncRequested(true);
+      setScriptDialogOpen(true);
+    },
     open: handleOpen,
     save: () => {
       void handleSave();
@@ -760,10 +772,15 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   return (
     <div className="editor-toolbar">
       <Dialog open={scriptDialogOpen} onOpenChange={setScriptDialogOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="flex h-[90vh] max-h-[90vh] flex-col overflow-hidden sm:max-w-6xl">
           <DialogTitle>Presentation script</DialogTitle>
-          <DialogDescription>Add or replace the stored script for this project.</DialogDescription>
-          <ScriptPanel onClose={() => setScriptDialogOpen(false)} />
+          <DialogDescription>
+            Manage the stored script and sync transcript passages with script sections.
+          </DialogDescription>
+          <ScriptPanel
+            onClose={() => setScriptDialogOpen(false)}
+            initialSyncOpen={scriptSyncRequested}
+          />
         </DialogContent>
       </Dialog>
       {openDialogVisible && (

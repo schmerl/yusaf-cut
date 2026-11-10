@@ -5,13 +5,16 @@ import { Button } from "@/components/ui/button";
 import { endTypingGroup, projectSession, useProjectStore } from "@/stores/projectStore";
 import { prepareScript, replaceStoredScript } from "@/lib/scriptAssistance";
 import { MAX_SCRIPT_BYTES, parseScript } from "@/lib/scriptMarkdown";
+import { ScriptSyncPanel } from "./ScriptSyncPanel";
 
 export function ScriptPanel({
   onClose,
   isComposing,
+  initialSyncOpen = false,
 }: {
   onClose: () => void;
   isComposing?: () => boolean;
+  initialSyncOpen?: boolean;
 }) {
   const project = useProjectStore((state) => state.project);
   const script = project.scriptAssistance?.scripts.find(
@@ -20,6 +23,7 @@ export function ScriptPanel({
   const parsed = useMemo(() => (script ? parseScript(script.markdown) : null), [script]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [syncOpen, setSyncOpen] = useState(initialSyncOpen);
   const serial = useRef(0);
   useEffect(
     () => () => {
@@ -73,9 +77,9 @@ export function ScriptPanel({
   return (
     <section
       aria-label="Presentation script"
-      className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border bg-card px-4 py-3 text-sm"
+      className={`min-h-0 flex-1 bg-card px-4 py-3 text-sm ${syncOpen && script ? "flex flex-col overflow-y-auto md:overflow-hidden" : "overflow-y-auto"}`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <h2 className="font-medium">Presentation script</h2>
         <Button
           size="sm"
@@ -85,6 +89,11 @@ export function ScriptPanel({
         >
           {busy ? "Importing script…" : script ? "Replace script" : "Import Markdown"}
         </Button>
+        {script && (
+          <Button size="sm" variant="outline" onClick={() => setSyncOpen(!syncOpen)}>
+            {syncOpen ? "Hide sync helper" : "Sync transcript…"}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={onClose}>
           Close script
         </Button>
@@ -100,12 +109,12 @@ export function ScriptPanel({
           <p>
             {script.name} · {parsed.passages.length} spoken passages
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="shrink-0 text-xs text-muted-foreground">
             A copy is stored with this project. Replace it explicitly to use an updated file. Import
             changes no transcript text or audio.
           </p>
           {parsed.issues.length > 0 && (
-            <div role="status">
+            <div role="status" className="max-h-24 shrink-0 overflow-y-auto">
               <p>Check these script locations before reconciling:</p>
               <ul>
                 {parsed.issues.map((issue) => (
@@ -116,35 +125,41 @@ export function ScriptPanel({
               </ul>
             </div>
           )}
-          <details className="mt-2">
-            <summary>Spoken script preview</summary>
-            <div className="max-h-48 overflow-y-auto whitespace-pre-wrap">
-              {parsed.passages.map((passage) => (
-                <p className="my-2" key={passage.from}>
-                  {passage.text}
-                </p>
-              ))}
-            </div>
-          </details>
-          <details className="mt-2">
-            <summary>Review history</summary>
-            {(project.scriptAssistance?.records ?? [])
-              .filter(
-                (r) =>
-                  r.historicalReason || !["suggested", "off-script", "applied"].includes(r.status),
-              )
-              .map((r) => (
-                <div key={r.id} className="my-2 border-t border-border pt-2">
-                  <p>
-                    {r.beforeText} → {r.afterText}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {r.status}
-                    {r.historicalReason ? ` · ${r.historicalReason}` : ""}
-                  </p>
+          {syncOpen && <ScriptSyncPanel isComposing={isComposing} />}
+          {!syncOpen && (
+            <>
+              <details className="mt-2">
+                <summary>Spoken script preview</summary>
+                <div className="max-h-48 overflow-y-auto whitespace-pre-wrap">
+                  {parsed.passages.map((passage) => (
+                    <p className="my-2" key={passage.from}>
+                      {passage.text}
+                    </p>
+                  ))}
                 </div>
-              ))}
-          </details>
+              </details>
+              <details className="mt-2">
+                <summary>Review history</summary>
+                {(project.scriptAssistance?.records ?? [])
+                  .filter(
+                    (r) =>
+                      r.historicalReason ||
+                      !["suggested", "off-script", "applied"].includes(r.status),
+                  )
+                  .map((r) => (
+                    <div key={r.id} className="my-2 border-t border-border pt-2">
+                      <p>
+                        {r.beforeText} → {r.afterText}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {r.status}
+                        {r.historicalReason ? ` · ${r.historicalReason}` : ""}
+                      </p>
+                    </div>
+                  ))}
+              </details>
+            </>
+          )}
         </>
       ) : (
         <p className="text-muted-foreground">
