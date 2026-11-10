@@ -6,8 +6,10 @@ import { projectTranscript, type ProjectedBlock, type ProjectedRun } from "./tra
 import type { TextRange } from "./transcriptEdits";
 import { parseScript, type ScriptPassage } from "./scriptMarkdown";
 import type { ScriptResultKind } from "./scriptAssistance";
+import { locateScriptSync, scriptSections } from "./scriptSync";
+import { matchingPassages, matchingBlocks, type MatchingPassage } from "./scriptMatchingPassages";
 
-export const SCRIPT_MATCH_POLICY = "script-match-v4";
+export const SCRIPT_MATCH_POLICY = "script-match-v5";
 
 // Compare apostrophe styles without changing displayed text or UTF-16 offsets.
 function normalizeApostrophes(text: string): string {
@@ -86,11 +88,11 @@ interface Pair {
 interface Alignment {
   cost: number;
   pairs: Pair[];
-  passage: ScriptPassage;
+  passage: MatchingPassage;
   scriptStart: number;
   scriptEnd: number;
 }
-function align(current: Token[], script: Token[], passage: ScriptPassage): Alignment[] {
+function align(current: Token[], script: Token[], passage: MatchingPassage): Alignment[] {
   if (!current.length || !script.length) return [];
   if (current.length * script.length > 2_000_000) return [];
   const width = script.length + 1;
@@ -164,6 +166,17 @@ export function* scriptCandidateBatches(
       notationCounts.set(notation, (notationCounts.get(notation) ?? 0) + 1);
     }
   const blocks = projectTranscript(project);
+  const automaticPassages = matchingPassages(parsed.passages, tokens);
+  const linkedBlocks = new Map<string, MatchingPassage[]>();
+  for (const link of metadata?.syncLinks ?? []) {
+    const ranges = locateScriptSync(project, link, blocks);
+    if (!ranges) continue;
+    const passages = matchingPassages(
+      parsed.passages.filter((p) => p.from >= link.scriptFrom && p.to <= link.scriptTo),
+      tokens,
+    );
+    for (const range of ranges) linkedBlocks.set(`${range.segmentId}:${range.blockId}`, passages);
+  }
   if (scope && !scope.length) throw new Error("Select a nonempty transcript passage.");
   for (const range of scope ?? []) {
     const block = blocks.find((b) => b.segmentId === range.segmentId && b.id === range.blockId);
@@ -274,15 +287,21 @@ export function* scriptCandidateBatches(
             : reason,
     });
   }
-  for (const block of blocks) {
+  for (const block of matchingBlocks(blocks, tokens)) {
     result = [];
     if (scope && !scope.some((r) => r.segmentId === block.segmentId && r.blockId === block.id))
       continue;
-    const current = tokens(block.text);
+    const currentText = block.text.slice(block.rangeFrom, block.rangeTo);
+    const current = tokens(currentText).map((token) => ({
+      ...token,
+      from: token.from + block.rangeFrom,
+      to: token.to + block.rangeFrom,
+    }));
     if (!current.length) continue;
+    const passages = linkedBlocks.get(`${block.segmentId}:${block.id}`) ?? automaticPassages;
     // An explicit digit-by-digit notation match must preserve every method,
     // path component and value. It does not infer a different identifier.
-    for (const passage of parsed.passages) {
+    for (const passage of passages) {
       for (const match of passage.text.matchAll(
         /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|QUERY)\s+(\/[\p{L}\p{N}_./{}:-]+)/gu,
       )) {
@@ -310,14 +329,26 @@ export function* scriptCandidateBatches(
         }
       }
     }
-    const matches = parsed.passages.flatMap((passage) =>
-      align(current, tokens(passage.text), passage),
-    );
+    const rawMatches = passages.flatMap((passage) => align(current, tokens(passage.text), passage));
+    const seen = new Set<string>();
+    const matches = rawMatches.filter((match) => {
+      const key = JSON.stringify([
+        match.pairs.map((pair) => [
+          pair.current,
+          pair.script === undefined ? null : pair.script + match.passage.tokenBase,
+        ]),
+      ]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     matches.sort((a, b) => a.cost - b.cost);
     let best = matches[0];
     let ambiguous = !!best && !!matches[1] && matches[1].cost === best.cost;
     if (ambiguous) {
-      const index = blocks.indexOf(block);
+      const index = blocks.findIndex(
+        (original) => original.id === block.id && original.segmentId === block.segmentId,
+      );
       const previous =
         blocks[index - 1]?.segmentId === block.segmentId
           ? tokens(blocks[index - 1]!.text).slice(-8)
@@ -329,15 +360,15 @@ export function* scriptCandidateBatches(
       const ranked = matches
         .filter((match) => match.cost === best!.cost)
         .map((match) => {
-          const passageIndex = parsed.passages.indexOf(match.passage);
+          const passageIndex = passages.indexOf(match.passage);
           const passageTokens = tokens(match.passage.text);
           const before = [
-            ...tokens(parsed.passages[passageIndex - 1]?.text ?? ""),
+            ...tokens(passages[passageIndex - 1]?.text ?? ""),
             ...passageTokens.slice(0, match.scriptStart),
           ].slice(-previous.length || undefined);
           const after = [
             ...passageTokens.slice(match.scriptEnd),
-            ...tokens(parsed.passages[passageIndex + 1]?.text ?? ""),
+            ...tokens(passages[passageIndex + 1]?.text ?? ""),
           ].slice(0, following.length);
           const score =
             previous.filter(
@@ -351,14 +382,14 @@ export function* scriptCandidateBatches(
         ambiguous = false;
       }
     }
-    if (!best || current.length < 3 || ambiguous) {
+    if (!best || (current.length < 3 && best.cost !== 0) || ambiguous) {
       add(
         block,
-        0,
-        block.text.length,
-        block.text,
+        block.rangeFrom,
+        block.rangeTo,
+        currentText,
         "uncertain",
-        best?.passage ?? parsed.passages[0]!,
+        best?.passage ?? passages[0] ?? parsed.passages[0]!,
         best
           ? "More than one script location fits this passage; choose wording by listening."
           : "Script alignment is uncertain; this does not establish unwanted speech.",
@@ -406,9 +437,14 @@ export function* scriptCandidateBatches(
       const proposed =
         best.passage.text.slice(best.scriptStart === 0 ? 0 : first.from, last.to) + punctuation;
       const sentenceStart =
-        best.scriptStart === 0 || /[.!?][\s"'”’)]*$/u.test(best.passage.text.slice(0, first.from));
-      const sentenceEnd = best.scriptEnd === script.length || /[.!?]/u.test(punctuation);
-      if (proposed !== block.text && sameSpokenWords(block.text, proposed)) {
+        best.passage.paragraphStarts.some(
+          (at) => at <= first.from && !tokens(best.passage.text.slice(at, first.from)).length,
+        ) || /[.!?][\s"'”’)]*$/u.test(best.passage.text.slice(0, first.from));
+      const sentenceEnd =
+        best.passage.paragraphEnds.some(
+          (at) => at >= last.to && !tokens(best.passage.text.slice(last.to, at)).length,
+        ) || /[.!?]/u.test(punctuation);
+      if (proposed !== currentText && sameSpokenWords(currentText, proposed)) {
         {
           const written = tokens(proposed);
           for (const run of block.runs) {
@@ -624,4 +660,56 @@ function notationAtoms(text: string): string[] {
     const value = digits[token.value] ?? token.value;
     return /^\d+$/u.test(value) ? value.split("") : [value];
   });
+}
+
+export interface AutomaticScriptLocation {
+  segmentId: string;
+  blockId: string;
+  sectionFrom: number;
+}
+
+/** Navigation hints only: no persistent links, review decisions or text edits.
+ * Yield after each paragraph so the dialog can cancel and remain responsive.
+ */
+export function* automaticScriptLocations(
+  project: Project,
+): Generator<AutomaticScriptLocation | null> {
+  const sections = scriptSections(project).map((section) => ({
+    from: section.from,
+    windows: matchingPassages(
+      section.passages.filter((p) => !p.ambiguous),
+      tokens,
+    ).map((passage) => ({ passage, words: tokens(passage.text) })),
+  }));
+  for (const block of projectTranscript(project)) {
+    const words = tokens(block.text);
+    if (words.length < 3) {
+      yield null;
+      continue;
+    }
+    // Short batches tolerate a recognition paragraph spanning slide boundaries.
+    const batches: Token[][] = [];
+    for (let i = 0; i < words.length; i += 36) batches.push(words.slice(i, i + 36));
+    const ranked = sections
+      .map((section) => ({
+        from: section.from,
+        score:
+          batches.reduce((sum, batch) => {
+            if (batch.length < 3) return sum;
+            let best = 0;
+            for (const window of section.windows) {
+              const matches = align(batch, window.words, window.passage);
+              if (matches.length) best = Math.max(best, 1 - matches[0]!.cost / batch.length);
+            }
+            return sum + best * batch.length;
+          }, 0) / words.length,
+      }))
+      .sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    // Repeated or weak wording should remain visibly unassigned, rather than
+    // silently treating the first slide as the matching slide.
+    yield best && best.score >= 0.65 && best.score - (ranked[1]?.score ?? 0) >= 0.08
+      ? { segmentId: block.segmentId, blockId: block.id, sectionFrom: best.from }
+      : null;
+  }
 }

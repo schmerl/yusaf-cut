@@ -57,6 +57,18 @@ export interface ScriptAssistance {
   activeRevision: string;
   scripts: StoredScript[];
   records: ScriptReviewRecord[];
+  syncLinks?: ScriptSyncLink[];
+}
+
+/** A user-selected correspondence, scoped to one take and one script revision. */
+export interface ScriptSyncLink {
+  id: string;
+  scriptRevision: string;
+  mediaId: string;
+  occurrenceLineage: string;
+  anchorIds: string[];
+  scriptFrom: number;
+  scriptTo: number;
 }
 
 const revisionPattern = /^[a-f0-9]{64}$/;
@@ -118,6 +130,44 @@ export function validateScriptAssistance(project: Project): void {
     scripts.set(script.revision, script);
   }
   requireValid(scripts.has(metadata.activeRevision), "missing active script");
+  const linkIds = new Set<string>();
+  requireValid(
+    !metadata.syncLinks || metadata.syncLinks.length <= 1000,
+    "too many script sync links",
+  );
+  for (const link of metadata.syncLinks ?? []) {
+    const source = scripts.get(link.scriptRevision);
+    requireValid(
+      short(link.id, 128) && !linkIds.has(link.id),
+      "duplicate/invalid script sync link",
+    );
+    linkIds.add(link.id);
+    requireValid(
+      source && short(link.mediaId) && short(link.occurrenceLineage),
+      "invalid script sync identity",
+    );
+    requireValid(
+      Array.isArray(link.anchorIds) &&
+        link.anchorIds.length > 0 &&
+        link.anchorIds.length <= 10000 &&
+        link.anchorIds.every((id) => short(id)) &&
+        new Set(link.anchorIds).size === link.anchorIds.length,
+      "invalid script sync anchors",
+    );
+    requireValid(
+      Number.isInteger(link.scriptFrom) &&
+        Number.isInteger(link.scriptTo) &&
+        link.scriptFrom >= 0 &&
+        link.scriptTo > link.scriptFrom &&
+        link.scriptTo <= source.markdown.length,
+      "invalid script sync range",
+    );
+    requireValid(
+      !/[\uD800-\uDBFF]$/u.test(source.markdown.slice(0, link.scriptFrom)) &&
+        !/[\uD800-\uDBFF]$/u.test(source.markdown.slice(0, link.scriptTo)),
+      "script sync range splits a Unicode character",
+    );
+  }
   const ids = new Set<string>();
   for (const record of metadata.records) {
     requireValid(short(record.id, 128) && !ids.has(record.id), "duplicate/invalid record ID");
