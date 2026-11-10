@@ -41,19 +41,21 @@ export function parseScript(markdown: string): ParsedScript {
   // Block parsing identifies code without interpreting it. Mask comments outside
   // code before inline parsing so comments can span blank lines. Keep every
   // source offset (including CRLF and astral Unicode) unchanged.
-  function protectedCode(source: string) {
+  function blockRanges(source: string) {
     const blocks: Token[] = [];
     md.block.parse(source, md, {}, blocks);
-    return blocks
-      .filter((t) => (t.type === "fence" || t.type === "code_block") && t.map)
-      .map((t) => ({ from: offset(t.map![0]), to: offset(t.map![1]) }));
+    const ranges = (types: string[]) =>
+      blocks
+        .filter((t) => types.includes(t.type) && t.map)
+        .map((t) => ({ from: offset(t.map![0]), to: offset(t.map![1]) }));
+    return { code: ranges(["fence", "code_block"]), inline: ranges(["inline"]) };
   }
-  let codeRanges = protectedCode(markdown);
+  let ranges = blockRanges(markdown);
   let commentReparses = 0;
   const chars = markdown.split("");
   const commentLines = new Set<number>();
   for (let i = 0; i < markdown.length; ) {
-    const code = codeRanges.find((r) => i >= r.from && i < r.to);
+    const code = ranges.code.find((r) => i >= r.from && i < r.to);
     if (code) {
       i = code.to;
       continue;
@@ -64,12 +66,13 @@ export function parseScript(markdown: string): ParsedScript {
     }
     if (markdown[i] === "`") {
       const marker = /^`+/u.exec(markdown.slice(i))![0];
+      const inlineEnd = ranges.inline.find((r) => i >= r.from && i < r.to)?.to ?? i;
       let end = i + marker.length;
-      while ((end = markdown.indexOf(marker, end)) >= 0) {
+      while ((end = markdown.indexOf(marker, end)) >= 0 && end + marker.length <= inlineEnd) {
         if (markdown[end - 1] !== "`" && markdown[end + marker.length] !== "`") break;
         end += marker.length;
       }
-      if (end >= 0) {
+      if (end >= 0 && end + marker.length <= inlineEnd) {
         i = end + marker.length;
         continue;
       }
@@ -91,12 +94,12 @@ export function parseScript(markdown: string): ParsedScript {
       // A fence inside a comment is not a real code block. Recompute only when
       // masking removed such a block opener, so it cannot hide later comments
       // or misclassify their interior as spoken text. Bound pathological nesting.
-      if (codeRanges.some((range) => range.from >= i && range.from < end)) {
+      if (ranges.code.some((range) => range.from >= i && range.from < end)) {
         if (++commentReparses > 32)
           throw new Error(
             "Too many overlapping comment/code constructs. Simplify the script markup and retry.",
           );
-        codeRanges = protectedCode(chars.join(""));
+        ranges = blockRanges(chars.join(""));
       }
       i = end;
       continue;
@@ -162,7 +165,7 @@ export function parseScript(markdown: string): ParsedScript {
       md.inline.parse(
         token.content,
         md,
-        { inlineOffset: from, raw: markdown.slice(from, to), positions },
+        { ...state.env, inlineOffset: from, raw: markdown.slice(from, to), positions },
         token.children,
       );
     }

@@ -6,6 +6,26 @@ const text = (markdown: string) =>
     .passages.map((p) => p.text)
     .join("\n");
 describe("spoken Markdown extraction", () => {
+  it("does not pair backticks across paragraphs and expose multiline comments", () => {
+    const source = "Before `broken.\n\n<!-- secret\n\nUNSPOKEN WORDS -->\n\nLater ` ending.";
+    const result = parseScript(source);
+    expect(result.passages.map((p) => p.text).join(" ")).not.toContain("UNSPOKEN");
+    expect(result.issues.filter((issue) => issue.message.includes("inline code"))).toHaveLength(2);
+    expect(result.passages.every((p) => p.ambiguous)).toBe(true);
+  });
+  it("allows inline code across lines within one paragraph", () => {
+    expect(text("Use `literal\n<!-- comment -->` here.")).toBe(
+      "Use literal <!-- comment --> here.",
+    );
+  });
+  it("preserves reference link labels and excludes reference images", () => {
+    expect(
+      text("Say [HTTP][api] ![unspoken alt][pic].\n\n[api]: https://example.com\n[pic]: image.png"),
+    ).toBe("Say HTTP .");
+    expect(
+      text("Say [HTTP][] and [API].\n\n[HTTP]: https://example.com\n[API]: https://example.org"),
+    ).toBe("Say HTTP and API.");
+  });
   it("uses ATX and Setext headings as context only", () => {
     const parsed = parseScript("# Title\n\nOpening.\n\nSection\n-------\n\nSpoken body.\n");
     expect(parsed.passages.map((p) => [p.text, p.section])).toEqual([
