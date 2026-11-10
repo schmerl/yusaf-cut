@@ -13,6 +13,56 @@ see [caption export bug handoff](export-caption-bugs.md).
 They have been recorded, not fixed. The review steps below remain available as
 regression instructions rather than a request to repeat the whole walkthrough now.
 
+## Script matching and manual sync helper — 2026-11-09
+
+Reconciliation now matches overlapping windows of spoken script text across
+paragraph and slide boundaries. Long transcript paragraphs are checked in bounded
+batches while retaining their original word anchors. Headings stay out of the
+spoken text; repeated wording and weak matches still require review.
+
+Open **Sync script…** beside Find differences, or **Review → Sync Script and
+Transcript…**. With no saved pairings, **Find differences** opens this dialog automatically.
+On opening, it computes proposed paragraph-to-slide matches locally, without
+changing the project. Weak or tied matches stay unassigned; saved pairings take
+priority over suggestions. The proposed matches support navigation in either
+direction and can be adjusted and saved using Link.
+
+The helper starts near the playhead and shows the recorded
+transcript beside the stored script. Search either column, click a transcript
+paragraph and Shift-click another to select a continuous range, then choose its
+corresponding script section. **Play selected passage** auditions that range.
+**Link and find differences** saves the link and checks only those paragraphs
+against the chosen section. It creates review suggestions without changing words
+or audio. **Link selected paragraphs to slide** saves the pairing without running
+reconciliation. The selection summary and both actions stay above the two
+independently scrolling columns; the helper fills the dialog height.
+
+Saved links and automatic suggestions synchronize selection in both directions. Clicking a script slide
+selects and reveals its linked transcript range; clicking a linked transcript
+paragraph reveals its slide. A search filter on the opposite column is cleared
+when needed to reveal the match. If a slide has multiple recorded takes, clicking
+it chooses the link nearest the current transcript selection. An unlinked slide
+keeps the transcript selection available for making a new pairing. Navigation
+does not save or modify links.
+
+Links are saved in the project, apply to one recorded take, and participate in
+Undo/Redo. They constrain the linked paragraphs only; they do not guess the
+alignment of later sections. Remove a link to restore unrestricted matching for
+that range. Changing links archives affected pending suggestions so the next
+Find differences can regenerate them; completed decisions stay in the log.
+Paragraph splits can retain a link, but removed anchors or paragraphs joined
+across a linked boundary make it stale and display a relink warning. Replacing
+the stored script clears its links. Each link currently pairs whole transcript
+paragraphs with one complete script section.
+
+Validation: 431 frontend tests, type checking, lint and the production frontend
+build pass; five native script-assistance tests cover save/snapshot round trips
+and validation, including the new optional sync metadata. On a read-only copy of
+the GraphQL project, completely unlocated candidate passages dropped from 10 to
+5. Other ambiguous suggestions remain; this is a matching coverage observation,
+not a correctness score. Browser automation was unavailable for a visual check;
+native layout and audible playback still need manual review in the rebuilt app.
+
 ## Current review — neighboring suggestions and automatic filler timing
 
 Allow about three minutes. Use the existing disposable project, and quit/reopen
