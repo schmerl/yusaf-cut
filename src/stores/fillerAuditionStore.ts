@@ -14,6 +14,7 @@ export interface FillerAuditionRequest {
   start: number;
   end: number;
   loop: boolean;
+  reviewLabel?: string;
 }
 interface AuditionState {
   request: FillerAuditionRequest | null;
@@ -65,3 +66,6 @@ useProjectStore.subscribe((state) => {
   )
     audition.stop("Playback stopped because the project changed.");
 });
+
+/** Shared bounded timeline playback; no filler classification/policy is used. */
+export const startReviewAudition = startFillerAudition;

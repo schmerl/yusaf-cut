@@ -1,4 +1,5 @@
 import { FillerAudition } from "./FillerAudition";
+import { RenderedTimelinePlayback, type RenderedPlaybackSession } from "./RenderedTimelinePlayback";
 import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
 /**
  * Video preview panel with full playback controls and isolated filler auditions.
@@ -49,6 +50,17 @@ function hasTimeline(project: Project) {
   return project.segments.length > 0;
 }
 
+function needsRenderedPlayback(project: Project) {
+  if (!("__TAURI_INTERNALS__" in window)) return false;
+  return project.segments.some(
+    (segment, index) =>
+      segment.precise ||
+      (index > 0 &&
+        (segment.mediaId !== project.segments[index - 1]!.mediaId ||
+          segment.sourceIn !== project.segments[index - 1]!.sourceOut)),
+  );
+}
+
 function displayDurationForProgress(outputDuration: number, nativeDuration: number) {
   return outputDuration > 0 ? outputDuration : nativeDuration;
 }
@@ -96,6 +108,13 @@ export function VideoPreview() {
   const pendingSeekRef = useRef<{ sourceTime: number; outputTime: number; play: boolean } | null>(
     null,
   );
+  const [renderedPlayback, setRenderedPlayback] = useState<RenderedPlaybackSession | null>(null);
+  const renderedPlaybackRef = useRef<RenderedPlaybackSession | null>(null);
+  const playbackProject = useRef(project);
+  playbackProject.current = project;
+  const failedRenderedPlayback = useCallback(() => {
+    renderedPlaybackRef.current = null;
+  }, []);
 
   const fallbackMediaPath = firstMediaPath(project);
   const mediaPath = activeMediaId
@@ -127,6 +146,42 @@ export function VideoPreview() {
       el.pause();
       setPlaying(false);
       return false;
+    }
+    const currentProject = playbackProject.current;
+    if (needsRenderedPlayback(currentProject)) {
+      // Source-media seeking cannot prevent a few milliseconds of removed
+      // audio escaping before the next video-frame callback. Use the same
+      // exact range renderer as Preview cut, bounded to short playback windows.
+      playIntentRef.current = false;
+      el.muted = true;
+      el.pause();
+      const player = usePlayerStore.getState();
+      const duration = totalDuration(currentProject);
+      const end =
+        player.timelineMarkIn !== null &&
+        player.timelineMarkOut !== null &&
+        player.timelineMarkIn !== player.timelineMarkOut
+          ? Math.min(duration, Math.max(player.timelineMarkIn, player.timelineMarkOut))
+          : duration;
+      const restart = player.currentTime >= end;
+      const start = restart ? 0 : player.currentTime;
+      if (end <= start) return false;
+      const previous = renderedPlaybackRef.current;
+      if (
+        restart ||
+        !previous ||
+        previous.project !== currentProject ||
+        previous.end !== end ||
+        start < previous.start ||
+        start >= previous.end
+      ) {
+        const session = { project: currentProject, start, end };
+        renderedPlaybackRef.current = session;
+        setRenderedPlayback(session);
+        player.setCurrentTime(start);
+      }
+      setPlaying(true);
+      return true;
     }
     playIntentRef.current = true;
     if (!el.currentSrc && src) {
@@ -218,6 +273,25 @@ export function VideoPreview() {
       const el = videoRef.current;
       if (!el) return;
       const clamped = Math.max(0, Math.min(targetOutput, outputDuration || el.duration || 0));
+      if (renderedPlaybackRef.current) {
+        const player = usePlayerStore.getState();
+        const end =
+          player.timelineMarkIn !== null &&
+          player.timelineMarkOut !== null &&
+          player.timelineMarkIn !== player.timelineMarkOut
+            ? Math.min(outputDuration, Math.max(player.timelineMarkIn, player.timelineMarkOut))
+            : outputDuration;
+        if (clamped < end) {
+          const session = { project, start: clamped, end };
+          renderedPlaybackRef.current = session;
+          setRenderedPlayback(session);
+          setCurrentTime(clamped);
+          player.setPlaying(opts.play ?? player.playing);
+          return;
+        }
+        renderedPlaybackRef.current = null;
+        setRenderedPlayback(null);
+      }
 
       // Free-play mode: output time === source time before an EDL exists.
       if (!hasTimeline(project)) {
@@ -264,6 +338,28 @@ export function VideoPreview() {
     [activeMediaId, outputDuration, project, setCurrentTime],
   );
 
+  const beginPlayback = useCallback(() => {
+    const player = usePlayerStore.getState();
+    const { timelineMarkIn: markIn, timelineMarkOut: markOut } = player;
+    if (markIn !== null && markOut !== null && markIn !== markOut) {
+      const from = Math.min(markIn, markOut),
+        to = Math.max(markIn, markOut);
+      if (player.currentTime < from || player.currentTime >= to) {
+        seekToOutputTime(from, { play: true });
+        if (outputTimeToSource(project, from)?.segment.mediaId !== activeMediaId) return;
+      }
+    }
+    playVideo();
+  }, [activeMediaId, playVideo, project, seekToOutputTime]);
+
+  useEffect(() => {
+    if (renderedPlaybackRef.current && renderedPlaybackRef.current.project !== project) {
+      renderedPlaybackRef.current = null;
+      setRenderedPlayback(null);
+      pauseVideo();
+    }
+  }, [project, pauseVideo]);
+
   // `precise` is the frame-accurate `mediaTime` from requestVideoFrameCallback
   // when available; falling back to `el.currentTime` (which can lag a frame).
   // Passing it explicitly removes one source of jitter in the word/timeline
@@ -271,7 +367,13 @@ export function VideoPreview() {
   const syncPlaybackClock = useCallback(
     (precise?: number) => {
       const el = videoRef.current;
-      if (!el || scrubbing || useFillerAuditionStore.getState().request) return;
+      if (
+        !el ||
+        scrubbing ||
+        renderedPlaybackRef.current ||
+        useFillerAuditionStore.getState().request
+      )
+        return;
       const mediaId = activeMediaId ?? firstMediaId(project);
       if (!mediaId) return;
 
@@ -301,6 +403,29 @@ export function VideoPreview() {
         index++;
       const entry = timeline[index]!;
       playbackSegmentRef.current = entry.segmentId;
+
+      const player = usePlayerStore.getState();
+      const { timelineMarkIn: markIn, timelineMarkOut: markOut } = player;
+      if (
+        (playIntentRef.current || player.playing) &&
+        markIn !== null &&
+        markOut !== null &&
+        markIn !== markOut
+      ) {
+        const from = Math.min(markIn, markOut),
+          to = Math.max(markIn, markOut);
+        const position =
+          entry.outputStart + Math.max(0, Math.min(srcTime, entry.sourceOut) - entry.sourceIn);
+        if (position >= to) {
+          pauseVideo();
+          seekToOutputTime(to, { play: false });
+          return;
+        }
+        if (position < from) {
+          seekToOutputTime(from, { play: true });
+          return;
+        }
+      }
 
       if (srcTime >= entry.sourceIn && srcTime < entry.sourceOut) {
         setCurrentTime(entry.outputStart + srcTime - entry.sourceIn);
@@ -338,6 +463,11 @@ export function VideoPreview() {
       pauseVideo();
       return;
     }
+    if (renderedPlaybackRef.current) {
+      playIntentRef.current = false;
+      el.pause();
+      return;
+    }
     if (playing && el.paused) {
       playVideo();
     } else if (!playing && !el.paused) {
@@ -347,8 +477,8 @@ export function VideoPreview() {
 
   useEffect(() => {
     const el = videoRef.current;
-    if (el) el.muted = muted;
-  }, [muted]);
+    if (el) el.muted = muted || Boolean(renderedPlayback || audition);
+  }, [muted, renderedPlayback, audition]);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -421,6 +551,10 @@ export function VideoPreview() {
       setPlaying(false);
     };
     const onPlay = () => {
+      if (renderedPlaybackRef.current) {
+        el.pause();
+        return;
+      }
       if (!playIntentRef.current || useFillerAuditionStore.getState().request) {
         playIntentRef.current = false;
         el.pause();
@@ -430,7 +564,9 @@ export function VideoPreview() {
       setLoadState("ready");
       setPlaying(true);
     };
-    const onPause = () => setPlaying(false);
+    const onPause = () => {
+      if (!renderedPlaybackRef.current) setPlaying(false);
+    };
 
     el.addEventListener("timeupdate", onTimeUpdate);
     el.addEventListener("ended", onTimeUpdate);
@@ -463,7 +599,7 @@ export function VideoPreview() {
       },
       [syncPlaybackClock],
     ),
-    playing && !audition,
+    playing && !audition && !renderedPlayback,
     src,
   );
 
@@ -473,7 +609,7 @@ export function VideoPreview() {
     function onPlay() {
       useFillerAuditionStore.getState().stop();
       if (editLocked()) return;
-      playVideo();
+      beginPlayback();
     }
     function onPause() {
       pauseVideo();
@@ -481,7 +617,7 @@ export function VideoPreview() {
     function onToggle() {
       useFillerAuditionStore.getState().stop();
       if (usePlayerStore.getState().playing) pauseVideo();
-      else if (!editLocked()) playVideo();
+      else if (!editLocked()) beginPlayback();
     }
     function onSeekOutput(e: Event) {
       useFillerAuditionStore.getState().stop();
@@ -492,7 +628,7 @@ export function VideoPreview() {
         wantsPlay &&
         activeMediaId === outputTimeToSource(project, ce.detail.time)?.segment.mediaId
       ) {
-        playVideo();
+        beginPlayback();
       }
     }
 
@@ -506,7 +642,7 @@ export function VideoPreview() {
       window.removeEventListener("yusafcut:toggle-play", onToggle);
       window.removeEventListener("yusafcut:seek-output", onSeekOutput);
     };
-  }, [activeMediaId, pauseVideo, playVideo, project, seekToOutputTime]);
+  }, [activeMediaId, pauseVideo, beginPlayback, project, seekToOutputTime]);
 
   // If a heavy edit starts while playing, pause immediately so playback can't
   // run against a timeline that is being rebuilt.
@@ -571,8 +707,9 @@ export function VideoPreview() {
       return;
     }
     if (isProcessingEdit) return; // locked while a heavy edit is processing
-    seekToSelectedWord();
-    playVideo();
+    const { timelineMarkIn, timelineMarkOut } = usePlayerStore.getState();
+    if (timelineMarkIn === null || timelineMarkOut === null) seekToSelectedWord();
+    beginPlayback();
   };
 
   // Display duration: use source duration in free-play mode, output duration otherwise
@@ -603,9 +740,17 @@ export function VideoPreview() {
       {/* Video area */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-black">
         <FillerAudition />
+        {renderedPlayback?.project === project && (
+          <RenderedTimelinePlayback
+            session={renderedPlayback}
+            playing={playing}
+            suspended={Boolean(audition)}
+            onFailure={failedRenderedPlayback}
+          />
+        )}
         <div
-          aria-hidden={Boolean(audition)}
-          className={`relative flex h-full w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_48%)]${audition ? " invisible" : ""}`}
+          aria-hidden={Boolean(audition || renderedPlayback)}
+          className={`relative flex h-full w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_48%)]${audition || renderedPlayback ? " invisible" : ""}`}
         >
           <video
             key={src}

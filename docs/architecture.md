@@ -223,3 +223,164 @@ The Tauri shell supports Linux and Windows, but YusafCut explicitly targets
 Apple Silicon macOS. The architectural choice rests on whisper.cpp's Core ML +
 Metal path and FFmpeg's VideoToolbox. We accept the lock-in for the
 performance moat per spec section 1's non-goals.
+
+## Script-assisted correction development prototype
+
+`scriptMarkdown.ts` parses a stored Markdown copy into spoken passages with raw
+UTF-16 ranges and heading context; it never renders/fetches markup. Optional
+versioned `Project.scriptAssistance` holds exact source revisions and durable
+review evidence, not another writable transcript. `TranscriptRun.provenance`
+protects manual typing, paste, replacement, restoration, hiding and review
+choices. Legacy deviations/hidden or ambiguous merged groups are conservatively
+protected; untouched normalized overlays remain eligible.
+
+`scriptMatching.ts` stages occurrence/anchor-scoped candidates against current
+surviving text, using adjacent context only within a continuous segment. Its
+orthographic heuristics are proposal boundaries, not acoustic proof.
+`scriptWorkflow.ts` captures project reference, session and script revision,
+stages the entire scope, and rejects cancellation or intervening edits (including
+an edit subsequently undone). `commands/script_analysis.rs` extracts bounded
+source windows and runs existing Whisper without script prompts or translation;
+it never downloads models or updates raw recognition caches. Progress and
+cancellation are request-scoped. Model/provider identity and actual analysis
+windows are retained with evidence.
+
+Inline review shows pending, applied and off-script states beside transcript highlights.
+`scriptReviewActions.ts` uses existing validated text transactions and explicit
+cuts. Simple punctuation/case changes retain existing timing groups. Off-script
+preview and commit share one immutable proposal and the general bounded timeline
+audition machinery, without filler-token policy. Current occurrence mapping guards
+prevent applying a decision to a different live item; obsolete previews are discarded. Editor decorations are
+separate from caption text.
+
+`scriptLifecycle.ts` reconciles review references during ordinary store updates,
+pure text/EDL/filler transforms and successful re-transcription, preserving
+historical evidence and disabling stale actions in that same history step.
+Loading and temporal undo/redo restore captured metadata without inventing a
+project edit. Native `script_assistance.rs` validates persisted revisions,
+UTF-16/source bounds, active references, versions and size limits on ordinary
+save/load and snapshot paths. Older binaries may discard the additive fields.
+
+Automatic wording application is **not enabled** in this prototype. The separate
+experimental C++ contrastive scorer is development tooling, not the app provider
+or a calibrated confidence rule. See the native checkpoint/acceptance audit
+before treating any part of this work as release acceptance.
+
+## Inline review and native commands (4.8.0-dev.3)
+
+`useNativeMenu` installs Tauri menus using the existing core menu capability.
+Native menu items and toolbar controls share `appCommands` events. Project
+Undo/Redo use the temporal project store; ordinary input fields retain native text
+undo, and unfinished transcript composition blocks project history actions.
+Menu enabled states subscribe to project/history changes. No OS-wide shortcut or
+additional permission is installed.
+
+`OpenDialog` accepts a recording and optional Markdown script, or opens an existing
+project. Script decoding/validation precedes media import; project/session guards
+prevent late setup from replacing a different project. `File → Add / Replace Script`
+opens stored preview/history in a dialog. Script storage does not require existing
+transcribed words.
+
+`InlineReview` projects surviving script records and filler candidates into one
+output-ordered queue. Selected runs scope navigation to that passage; other pending
+records persist. Transcript decorations open a nonmodal popover beside the phrase;
+keyboard navigation and native Review commands use the same queue. Advanced filler
+settings remain in an on-demand dialog, rather than a permanent side panel.
+
+Text-only `runScriptReconciliation` bypasses the native recognizer and creates
+pending records with engine `script-text-comparison-v1`, no claimed unprompted audio,
+and no acoustic windows. It never applies wording automatically and never replaces
+valid independent evidence with text-only evidence. Explicit Check audio retains
+the bounded, staged native provider. Text-only results still use project/session,
+script revision and IME guards and commit in one transaction.
+
+Decisions rebuild against current anchor/text mappings. A project change discards
+cut previews; an Undo-restored occurrence can be reviewed immediately without a
+blanket refresh gate. Preview and commit share one proposal while the project is
+unchanged. Boundary estimates capture candidate, project, session and request
+identity. Transcript document synchronization restores scroll and chooses the
+nearest surviving paragraph when a cut removes the caret's block; a new session
+starts at the top. These mechanisms do not change original recognition or captions.
+
+### Selection handoff (4.8.0-dev.4)
+
+The editor captures logical passage ranges before outside pointer/focus changes.
+Toolbar and native menu commands use that snapshot if WebKit collapses its live
+selection; an editor decoration keeps the retained scope visible. Metadata-only
+changes such as script attachment preserve it, while changed text and new project
+sessions clear it. Fresh caret/selection interaction replaces the snapshot.
+Missing-script review commands open script management explicitly. Suggestion
+markers expose the exact before/replacement context in their tooltip and accessible
+name; users can run whole-transcript comparison and click Jason directly.
+
+### Matching and cut refinements (4.8.0-dev.5)
+
+Matching policy `script-match-v2` excludes vocal filler-only proposals and never
+replaces a divergent span containing vocal fillers with scripted wording. Inline
+review also filters legacy filler-only script records. Explicit comparisons archive
+older active policy results only in the analyzed scope, preserving resolved
+choices. Matched numeric notation requires identical digit/decimal value, with
+O/Oh treated as zero in spoken digit sequences; partial prefixes of longer numbers
+are rejected. Ambiguous/no-replacement results remain explicit Needs review items.
+
+Custom text uses the current validated occurrence, keeps source anchors unchanged,
+and records an explicit user decision/provenance in the same Undo transaction.
+No-replacement cards offer editing/dismissal rather than a disabled Accept action.
+
+Off-script review builds precise source fragments around the selected anchor span;
+it no longer passes those cuts through legacy deleteWords padding. Nonnegative
+before/after buffers may extend into silence but cannot cross existing edits or
+neighboring/hidden speech. The normalized transcript is reconciled independently
+for both retained fragments and metadata. Segment splitting may display the retained
+tail as a new paragraph; its words, captions and source audio remain present. Popup
+context and preview duration make the intended removal visible before committing.
+
+### Combined review chain and decision log (4.8.0-dev.6)
+
+After an explicit Accept/Dismiss/custom text decision succeeds, inline review
+selects the next surviving item from the prior queue, including fillers by default.
+It wraps to remaining earlier items and completes only when the scoped/filter queue
+is empty. Failed actions never advance. Cuts remain pinned for audition/Undo.
+An explicit review text edit can rebase the context of neighboring pending records
+only if their exact anchors, text, timing and unique occurrence remain unchanged;
+manual unrelated edits retain the conservative stale-context behavior.
+
+Optional versioned `Project.reviewLog` records immutable decision entries alongside
+the same project transaction: action/kind, before/after text, timestamp, occurrence,
+anchors, actual source bounds and associated script/filler IDs. TS and Rust validate
+limits, IDs, kinds/actions, timestamps and finite source ranges. Historical log
+references may outlive cuts/media removal. No project snapshots or audio copies are
+embedded in entries. Save/load/snapshot and undo/redo retain the log.
+
+ReviewHistory is an on-demand dialog reached through native Review or Options.
+It pages saved entries and supplements them with older retained script/filler
+outcomes without inventing timestamps. Locate resolves a unique current occurrence;
+reopening dismissed/kept decisions and reverting accepted text use current exact
+mapping guards. Latest-decision Undo is offered only if the temporal predecessor
+predates that entry. A log cannot restore cut media after undo history is gone;
+existing snapshots remain the durable recovery mechanism for cuts.
+
+Matching policy v3 includes punctuation on a single original timed word when
+classifying off-script speech. Thus a truncated `documente-` is represented by its
+whole anchor instead of an unsupported partial range. Merged corrected groups and
+scope boundaries retain their existing restrictions.
+
+### Neighbor preservation and automatic filler timing (4.8.0-dev.7)
+
+Explicit filler/off-script cuts can split an original paragraph into retained
+fragments. After the normal cut reconciliation, `rebaseReviewContexts` recovers
+only previously active pending records whose full anchor set, expected text,
+source timing and unique occurrence survive. It updates their local before/after
+context in the same undoable transaction. Removed or changed targets remain
+archived; arbitrary stale history is never revived. Filler hiding and custom
+wording use the same guarded rebasing.
+
+Inline review automatically invokes the existing bounded `estimateFillerBoundaries`
+provider once per selected eligible filler/project. A stable callback prevents
+rerenders from starting duplicate requests. Navigation invalidates immediately;
+request serial, project/session and selected-candidate guards discard late results.
+Manual offsets invalidate pending estimates and remain authoritative. Preview/cut
+wait during estimation; uncertainty retains current timing with explicit guidance.
+Very short anchors require estimated or manually reviewed timing. Grouped/residual
+fillers retain their isolation restrictions. Estimation changes only local proposal
+state, never the project, caption text, log or media. It does not invoke Whisper.

@@ -66,7 +66,11 @@ export function occurrenceLineage(segment: Segment): string {
 export function fillerCandidates(project: Project): FillerCandidate[] {
   const policy = project.fillerReview?.policy ?? defaultFillerPolicy();
   // Validation of review records must not recursively project them.
-  const blocks = projectTranscript({ ...project, fillerReview: undefined });
+  const blocks = projectTranscript({
+    ...project,
+    fillerReview: undefined,
+    scriptAssistance: undefined,
+  });
   const candidates: FillerCandidate[] = [];
   for (const block of blocks) {
     const segment = project.segments.find((s) => s.id === block.segmentId)!;

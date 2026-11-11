@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/core";
 import { TranscriptEditor } from "@/components/TranscriptEditor/TranscriptEditor";
@@ -8,6 +8,8 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { projectTranscript } from "@/lib/transcript";
 import { totalDuration, type Project } from "@/lib/edl";
 import fixture from "./fixtures/transcript-corrections.json";
+import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
+import { dispatchCommand } from "@/lib/appCommands";
 
 function Harness() {
   useKeyboardShortcuts();
@@ -82,10 +84,90 @@ describe("editable transcript with real ProseMirror transactions", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/whole/);
     act(() => e.commands.setTextSelection({ from: 1, to: 12 }));
     fireEvent.click(screen.getByRole("button", { name: /Cut speech/ }));
+    const popup = within(screen.getByRole("dialog", { name: "Cut selected speech" }));
+    expect(totalDuration(useProjectStore.getState().project)).toBe(6);
+    fireEvent.click(popup.getByRole("button", { name: "Cut speech" }));
     expect(totalDuration(useProjectStore.getState().project)).toBeLessThan(6);
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(totalDuration(useProjectStore.getState().project)).toBe(6);
     expect(editor().state.doc.firstChild!.textContent).toBe(text());
+  });
+  it("previews adjusted direct cuts without changing the project, then commits that exact preview", () => {
+    render(<Harness />);
+    const before = useProjectStore.getState().project;
+    act(() => editor().commands.setTextSelection({ from: 1, to: 12 }));
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "x", metaKey: true, shiftKey: true });
+    const popup = within(screen.getByRole("dialog", { name: "Cut selected speech" }));
+    expect(popup.getByText("idempotency")).toBeTruthy();
+    fireEvent.click(popup.getByRole("button", { name: "Play original" }));
+    expect(useFillerAuditionStore.getState().request!.timeline).toBe(before);
+    fireEvent.change(popup.getByRole("spinbutton", { name: "Cut end offset" }), {
+      target: { value: "200" },
+    });
+    expect(useFillerAuditionStore.getState().request).toBeNull();
+    fireEvent.click(popup.getByRole("button", { name: "Preview cut" }));
+    const preview = useFillerAuditionStore.getState().request!.timeline;
+    expect(totalDuration(preview)).toBeCloseTo(4.8);
+    expect(popup.getByRole("status", { name: "Cut warning" })).toHaveTextContent(/clipped/);
+    expect(useProjectStore.getState().project).toBe(before);
+    fireEvent.click(popup.getByRole("button", { name: "Cut speech" }));
+    expect(useProjectStore.getState().project).toBe(preview);
+    expect(screen.queryByRole("dialog", { name: "Cut selected speech" })).toBeNull();
+    expect(useFillerAuditionStore.getState().request).toBeNull();
+  });
+  it("previews and cuts a whole passage with its trailing audio, leaving no orphan clip", () => {
+    const p = useProjectStore.getState().project;
+    replaceProjectBaseline({
+      ...p,
+      segments: [{ ...p.segments[0]!, sourceOut: 3.4 }, p.segments[1]!],
+    });
+    render(<Harness />);
+    const before = useProjectStore.getState().project;
+    act(() => editor().commands.setTextSelection({ from: 1, to: 1 + text().length }));
+    fireEvent.click(screen.getByRole("button", { name: "Cut speech" }));
+    const popup = within(screen.getByRole("dialog", { name: "Cut selected speech" }));
+    expect(popup.getByRole("spinbutton", { name: "Cut end offset" })).toHaveValue(400);
+    fireEvent.click(popup.getByRole("button", { name: "Preview cut" }));
+    const preview = useFillerAuditionStore.getState().request!.timeline;
+    expect(preview.segments).toHaveLength(1);
+    expect(preview.segments[0]!.id).toBe("s2");
+    expect(totalDuration(preview)).toBe(3);
+    fireEvent.click(popup.getByRole("button", { name: "Cut speech" }));
+    expect(useProjectStore.getState().project).toBe(preview);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(useProjectStore.getState().project).toBe(before);
+  });
+  it("opens from the menu command, warns about overlaps without disabling the cut, and cancels without an edit", () => {
+    render(<Harness />);
+    const before = useProjectStore.getState().project;
+    act(() => editor().commands.setTextSelection({ from: 1, to: 12 }));
+    act(() => dispatchCommand("cut-speech"));
+    const popup = within(screen.getByRole("dialog", { name: "Cut selected speech" }));
+    fireEvent.change(popup.getByRole("spinbutton", { name: "Cut end offset" }), {
+      target: { value: "200" },
+    });
+    expect(popup.getByRole("status", { name: "Cut warning" })).toHaveTextContent(/neighboring/);
+    expect(popup.queryByRole("alert")).toBeNull();
+    expect(popup.getByRole("button", { name: "Cut speech" })).toBeEnabled();
+    expect(popup.getByRole("button", { name: "Preview cut" })).toBeEnabled();
+    fireEvent.click(popup.getByRole("button", { name: "Preview cut" }));
+    expect(totalDuration(useFillerAuditionStore.getState().request!.timeline)).toBeCloseTo(4.8);
+    fireEvent.click(popup.getByRole("button", { name: "Cancel" }));
+    expect(useProjectStore.getState().project).toBe(before);
+    expect(screen.queryByRole("dialog", { name: "Cut selected speech" })).toBeNull();
+  });
+  it("closes a pending cut when the project changes and supports Escape", () => {
+    render(<Harness />);
+    act(() => editor().commands.setTextSelection({ from: 1, to: 12 }));
+    act(() => dispatchCommand("cut-speech"));
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Cut selected speech" }), {
+      key: "Escape",
+    });
+    expect(screen.queryByRole("dialog", { name: "Cut selected speech" })).toBeNull();
+    act(() => dispatchCommand("cut-speech"));
+    act(() => useProjectStore.getState().rename("Changed"));
+    expect(screen.queryByRole("dialog", { name: "Cut selected speech" })).toBeNull();
+    expect(totalDuration(useProjectStore.getState().project)).toBe(6);
   });
   it("typing keys never invoke global playback/cut actions", () => {
     render(<Harness />);

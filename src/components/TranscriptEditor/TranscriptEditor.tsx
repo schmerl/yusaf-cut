@@ -29,6 +29,13 @@ import { projectSession } from "@/stores/projectStore";
 import { useFillerAuditionStore } from "@/stores/fillerAuditionStore";
 import { FillerReviewPanel } from "./FillerReviewPanel";
 import { FindReplacePanel } from "./FindReplacePanel";
+import { InlineReview, selectReviewTarget } from "./InlineReview";
+import { useAppCommands } from "@/lib/appCommands";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { isVocalFillerOnly } from "@/lib/scriptMatching";
+import { locateScriptRecord } from "@/lib/scriptLifecycle";
+import { buildTranscriptCut } from "@/lib/transcriptCut";
+import { TranscriptCutPopover, type TranscriptCutSelection } from "./TranscriptCutPopover";
 
 const TimedParagraph = Paragraph.extend({
   addAttributes() {
@@ -90,6 +97,7 @@ export function TranscriptEditor({
   onFindClose,
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
+  const session = useProjectStore(() => projectSession());
   const reviewOpen = useUIStore((s) => s.fillerReviewOpen);
   const reviewId = useUIStore((s) => s.fillerReviewCandidateId);
   const reviewIdRef = useRef(reviewId);
@@ -107,6 +115,15 @@ export function TranscriptEditor({
     project: Project;
     blocks: Map<string, ProjectedBlock>;
     fillers: FillerCandidate[];
+    scripts: {
+      id: string;
+      segmentId: string;
+      blockId: string;
+      from: number;
+      to: number;
+      status: string;
+      label: string;
+    }[];
   } | null>(null);
   const pauseTokens = useProjectStore((s) => s.pauseTokens);
   const past = useTemporalProjectStore((s) => s.pastStates);
@@ -121,13 +138,27 @@ export function TranscriptEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const [error, setError] = useState("");
+  const future = useTemporalProjectStore((s) => s.futureStates);
   const [selection, setSelection] = useState<TextRange[]>([]);
+  const selectionRef = useRef<TextRange[]>([]);
+  const leavingEditor = useRef(false);
+  function rememberSelection(ranges: TextRange[]) {
+    selectionRef.current = ranges;
+    setSelection(ranges);
+  }
+  function actionRanges(editor: Editor) {
+    return leavingEditor.current ? selectionRef.current : selectedRanges(editor);
+  }
   const searchResults = useRef<{
     project: Project;
     matches: TranscriptMatch[];
     current: number;
   } | null>(null);
   const [inspection, setInspection] = useState<{ project: Project; range: TextRange } | null>(null);
+  const [cutSelection, setCutSelection] = useState<TranscriptCutSelection | null>(null);
+  const cutSelectionRef = useRef(cutSelection);
+  cutSelectionRef.current = cutSelection;
+  const closeCut = useCallback(() => setCutSelection(null), []);
   const onSearchResults = useCallback(
     (project: Project, matches: TranscriptMatch[], current: number) => {
       searchResults.current = { project, matches, current };
@@ -149,9 +180,31 @@ export function TranscriptEditor({
     endTypingGroup();
     try {
       if (composed.current) throw new Error("Finish typing before cutting speech.");
-      const ranges = selectedRanges(editor);
+      const ranges = actionRanges(editor);
       if (!ranges.length) throw new Error("Select the words or complete corrected phrase to cut.");
-      useProjectStore.getState().cutSpeech(ranges, model.current);
+      buildTranscriptCut(model.current, ranges);
+      let anchorPosition = editor.state.selection.from;
+      editor.state.doc.forEach((node, pos) => {
+        if (
+          node.attrs.segmentId === ranges[0]!.segmentId &&
+          node.attrs.blockId === ranges[0]!.blockId
+        )
+          anchorPosition = pos + 1 + ranges[0]!.from;
+      });
+      selectReviewTarget(null);
+      useFillerAuditionStore.getState().stop();
+      setCutSelection({
+        project: model.current,
+        session: projectSession(),
+        ranges: ranges.map((range) => ({ ...range })),
+        anchor: () => {
+          try {
+            return editor.view.coordsAtPos(anchorPosition);
+          } catch {
+            return editor.view.dom.getBoundingClientRect();
+          }
+        },
+      });
       setError("");
     } catch (error) {
       report(error);
@@ -199,12 +252,42 @@ export function TranscriptEditor({
               props: {
                 decorations: (state) => {
                   if (projectionCache.current?.project !== model.current) {
+                    const scriptBlocks = projectTranscript(model.current);
                     projectionCache.current = {
                       project: model.current,
                       fillers: fillerCandidates(model.current).filter((c) => !c.hidden),
-                      blocks: new Map(
-                        projectTranscript(model.current).map((b) => [`${b.segmentId}:${b.id}`, b]),
-                      ),
+                      blocks: new Map(scriptBlocks.map((b) => [`${b.segmentId}:${b.id}`, b])),
+                      scripts: (model.current.scriptAssistance?.records ?? []).flatMap((record) => {
+                        if (
+                          !["applied", "suggested", "off-script"].includes(record.status) ||
+                          (record.status !== "applied" && isVocalFillerOnly(record.beforeText))
+                        )
+                          return [];
+                        const location = locateScriptRecord(model.current, record, scriptBlocks);
+                        return location
+                          ? [
+                              {
+                                id: record.id,
+                                label:
+                                  record.beforeText !== record.afterText
+                                    ? `${record.beforeText} → ${record.afterText}`
+                                    : record.status === "off-script"
+                                      ? "Possible off-script speech"
+                                      : "Uncertain script match",
+                                segmentId: location.block.segmentId,
+                                blockId: location.block.id,
+                                from: location.from,
+                                to: location.to,
+                                status:
+                                  record.status === "applied"
+                                    ? "applied"
+                                    : record.status === "off-script"
+                                      ? "off-script"
+                                      : "pending",
+                              },
+                            ]
+                          : [];
+                      }),
                     };
                   }
                   const projected = projectionCache.current.blocks;
@@ -250,7 +333,38 @@ export function TranscriptEditor({
                         { key: `${block.segmentId}:${block.id}:time`, side: -1 },
                       ),
                     );
+                    const cutRanges =
+                      cutSelectionRef.current?.project === model.current
+                        ? cutSelectionRef.current.ranges
+                        : null;
+                    if (cutRanges || leavingEditor.current) {
+                      for (const range of cutRanges ?? selectionRef.current) {
+                        if (
+                          range.segmentId === block.segmentId &&
+                          range.blockId === block.id &&
+                          range.to <= node.content.size
+                        )
+                          decorations.push(
+                            Decoration.inline(pos + 1 + range.from, pos + 1 + range.to, {
+                              class: "is-passage-selected",
+                            }),
+                          );
+                      }
+                    }
                     const search = searchResults.current;
+                    for (const marker of projectionCache.current!.scripts) {
+                      if (marker.segmentId === block.segmentId && marker.blockId === block.id)
+                        decorations.push(
+                          Decoration.inline(pos + 1 + marker.from, pos + 1 + marker.to, {
+                            class: `is-script-${marker.status}`,
+                            "data-script-record": marker.id,
+                            role: "button",
+                            tabindex: "0",
+                            "aria-label": marker.label,
+                            title: marker.label,
+                          }),
+                        );
+                    }
                     if (search?.project === model.current) {
                       const matches = search.matches.filter(
                         (match) =>
@@ -278,7 +392,38 @@ export function TranscriptEditor({
                           Decoration.inline(pos + 1 + candidate.from, pos + 1 + candidate.to, {
                             class: `is-filler${candidate.id === reviewIdRef.current ? " is-review-current" : ""}`,
                             "data-filler-id": candidate.id,
-                            title: "Filler candidate — Review fillers to listen and decide",
+                            role: "button",
+                            tabindex: "0",
+                            "aria-label": "Review filler",
+                            title: "Filler candidate — click to review",
+                          }),
+                        );
+                    }
+                    for (const span of block.codeSpans ?? []) {
+                      decorations.push(
+                        Decoration.inline(pos + 1 + span.from, pos + 1 + span.to, {
+                          class: "transcript-code",
+                        }),
+                      );
+                      const quote = () => {
+                        const element = document.createElement("span");
+                        element.textContent = '"';
+                        element.contentEditable = "false";
+                        element.className = "transcript-code";
+                        return element;
+                      };
+                      if (span.quote && span.open !== false)
+                        decorations.push(
+                          Decoration.widget(pos + 1 + span.from, quote, {
+                            side: -1,
+                            key: `code-open:${block.id}:${span.from}`,
+                          }),
+                        );
+                      if (span.quote && span.close !== false)
+                        decorations.push(
+                          Decoration.widget(pos + 1 + span.to, quote, {
+                            side: 1,
+                            key: `code-close:${block.id}:${span.to}`,
                           }),
                         );
                     }
@@ -313,8 +458,19 @@ export function TranscriptEditor({
                   return true;
                 },
                 handleKeyDown: (view, event) => {
-                  const mod = event.metaKey || event.ctrlKey;
                   if (event.isComposing || composed.current) return false;
+                  const mod = event.metaKey || event.ctrlKey;
+                  const marker = (event.target as HTMLElement)?.closest<HTMLElement>(
+                    "[data-script-record], [data-filler-id]",
+                  );
+                  if (!mod && marker && ["Enter", " "].includes(event.key)) {
+                    event.preventDefault();
+                    if (marker.dataset.scriptRecord)
+                      selectReviewTarget({ kind: "script", id: marker.dataset.scriptRecord });
+                    else if (marker.dataset.fillerId)
+                      selectReviewTarget({ kind: "filler", id: marker.dataset.fillerId });
+                    return true;
+                  }
                   if (mod && event.shiftKey && event.key.toLowerCase() === "x") {
                     event.preventDefault();
                     if (editorRef.current) cut(editorRef.current);
@@ -395,8 +551,9 @@ export function TranscriptEditor({
                   return false;
                 },
                 handleDOMEvents: {
-                  compositionstart: () => {
+                  compositionstart: (view) => {
                     composed.current = true;
+                    view.dom.setAttribute("data-composing", "true");
                     compositionBase.current = model.current;
                     endTypingGroup();
                     return false;
@@ -405,6 +562,7 @@ export function TranscriptEditor({
                     // WebKit's final input may arrive after compositionend.
                     timer.current = setTimeout(() => {
                       composed.current = false;
+                      view.dom.removeAttribute("data-composing");
                       try {
                         if (
                           externalDuringComposition.current ||
@@ -450,7 +608,10 @@ export function TranscriptEditor({
     [],
   );
 
+  const syncedSession = useRef(projectSession());
   function sync(editor: Editor, p: Project) {
+    const sameSession = syncedSession.current === projectSession();
+    syncedSession.current = projectSession();
     model.current = p;
     local.current = null;
     pending.current = null;
@@ -458,6 +619,12 @@ export function TranscriptEditor({
     const doc = editor.schema.nodeFromJSON(
       json.content.length ? json : { type: "doc", content: [{ type: "paragraph" }] },
     );
+    if (!sameSession) rememberSelection([]);
+    if (!desiredCaret.current && doc.eq(editor.state.doc)) {
+      editor.view.dispatch(editor.state.tr.setMeta("projection", true));
+      return;
+    }
+    rememberSelection([]);
     const previous = editor.state.selection;
     const logical = desiredCaret.current ?? {
       segmentId: previous.$from.parent.attrs.segmentId as string,
@@ -465,16 +632,29 @@ export function TranscriptEditor({
       offset: previous.$from.parentOffset,
     };
     desiredCaret.current = null;
+    const oldIndex = sameSession ? previous.$from.index(0) : 0;
     let caret = 1;
-    doc.forEach((node, pos) => {
-      if (node.attrs.blockId === logical.blockId && node.attrs.segmentId === logical.segmentId)
+    doc.forEach((node, pos, index) => {
+      if (index === Math.min(oldIndex, doc.childCount - 1))
         caret = pos + 1 + Math.min(logical.offset, node.content.size);
+    });
+    doc.forEach((node, pos) => {
+      if (
+        sameSession &&
+        node.attrs.blockId === logical.blockId &&
+        node.attrs.segmentId === logical.segmentId
+      ) {
+        caret = pos + 1 + Math.min(logical.offset, node.content.size);
+      }
     });
     const tr = editor.state.tr
       .replaceWith(0, editor.state.doc.content.size, doc.content)
       .setMeta("externalTranscript", true);
     tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(caret, tr.doc.content.size))));
+    const scroll = editor.view.dom.closest(".transcript-scroll");
+    const top = scroll?.scrollTop;
     editor.view.dispatch(tr);
+    if (scroll && top !== undefined) scroll.scrollTop = sameSession ? top : 0;
   }
 
   const editor = useEditor({
@@ -512,8 +692,20 @@ export function TranscriptEditor({
         if (editorRef.current) sync(editorRef.current, useProjectStore.getState().project);
       }
     },
+    onBlur: ({ editor }) => {
+      leavingEditor.current = true;
+      const ranges = selectedRanges(editor);
+      rememberSelection(ranges.length ? ranges : selectionRef.current);
+    },
+    onFocus: ({ editor }) => {
+      leavingEditor.current = false;
+      rememberSelection(selectedRanges(editor));
+      editor.view.dispatch(editor.state.tr.setMeta("passageSelection", true));
+    },
     onSelectionUpdate: ({ editor, transaction }) => {
-      setSelection(selectedRanges(editor));
+      const ranges = selectedRanges(editor);
+      if (ranges.length || !leavingEditor.current || transaction.docChanged)
+        rememberSelection(ranges);
       if (!transaction.docChanged || !editor.state.selection.empty) endTypingGroup();
     },
   });
@@ -521,21 +713,41 @@ export function TranscriptEditor({
 
   useEffect(() => {
     if (!editor) return;
+    const capture = (event: MouseEvent) => {
+      const outside = !editor.view.dom.contains(event.target as Node);
+      if (!outside && leavingEditor.current) rememberSelection([]);
+      leavingEditor.current = outside;
+      if (outside) {
+        const ranges = selectedRanges(editor);
+        if (ranges.length) rememberSelection(ranges);
+      }
+    };
+    document.addEventListener("mousedown", capture, true);
+    return () => document.removeEventListener("mousedown", capture, true);
+  }, [editor]);
+  useEffect(() => {
+    if (editor && !editor.isDestroyed)
+      editor.view.dispatch(editor.state.tr.setMeta("passageSelection", true));
+  }, [editor, selection, cutSelection]);
+  useEffect(() => {
+    if (!editor) return;
     if (composed.current) {
       if (project !== compositionBase.current) externalDuringComposition.current = true;
       return;
     }
-    if (project === local.current) {
+    if (syncedSession.current === session && project === local.current) {
       model.current = project;
       editor.view.dispatch(editor.state.tr.setMeta("projection", true));
     } else if (
+      syncedSession.current !== session ||
       model.current !== project ||
       readDocument(editor.state.doc)[0]?.blockId !== blocks[0]?.id
     ) {
       sync(editor, project);
     }
-    // sync uses no reactive state; local echo must not replace the editor document.
-  }, [editor, project, blocks]);
+    // sync reads refs and stable setters; recreating it must not replace local typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, project, blocks, session]);
   useEffect(() => {
     if (editor && !editor.isDestroyed)
       editor.view.dispatch(editor.state.tr.setMeta("playback", true));
@@ -555,7 +767,50 @@ export function TranscriptEditor({
     occurrence?.scrollIntoView?.({ block: "nearest" });
   }, [editor, reviewId]);
 
+  useEffect(() => {
+    const reveal = (event: Event) => {
+      const { segmentId, anchorIds } = (
+        event as CustomEvent<{ segmentId: string; anchorIds: string[] }>
+      ).detail;
+      if (!editor || composed.current) return;
+      const block = projectTranscript(model.current).find(
+        (b) =>
+          b.segmentId === segmentId &&
+          b.runs.some((r) => r.anchorIds.some((id) => anchorIds.includes(id))),
+      );
+      const runs = block?.runs.filter((r) => r.anchorIds.some((id) => anchorIds.includes(id)));
+      if (!block || !runs?.length) return;
+      editor.state.doc.forEach((node, pos) => {
+        if (node.attrs.segmentId === block.segmentId && node.attrs.blockId === block.id)
+          editor.commands.setTextSelection({
+            from: pos + 1 + runs[0]!.from,
+            to: pos + 1 + runs.at(-1)!.to,
+          });
+      });
+      Array.from(editor.view.dom.querySelectorAll<HTMLElement>("[data-run-id]"))
+        .find((el) => el.dataset.runId === runs[0]!.id)
+        ?.scrollIntoView?.({ block: "center" });
+    };
+    window.addEventListener("yusafcut:reveal-review", reveal);
+    return () => window.removeEventListener("yusafcut:reveal-review", reveal);
+  }, [editor]);
   function seek(event: React.MouseEvent) {
+    if (
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !composed.current &&
+      editorRef.current?.state.selection.empty
+    ) {
+      const target = event.target as HTMLElement;
+      const marker = target.closest<HTMLElement>("[data-script-record], [data-filler-id]");
+      if (marker) {
+        if (marker.dataset.scriptRecord)
+          selectReviewTarget({ kind: "script", id: marker.dataset.scriptRecord });
+        else if (marker.dataset.fillerId)
+          selectReviewTarget({ kind: "filler", id: marker.dataset.fillerId });
+        return;
+      }
+    }
     if (!event.metaKey && !event.ctrlKey) return;
     const target = (event.target as HTMLElement).closest<HTMLElement>("[data-output-start]");
     if (!target) return;
@@ -574,7 +829,7 @@ export function TranscriptEditor({
       report("Finish typing before inspecting originals.");
       return;
     }
-    const ranges = selectedRanges(editor);
+    const ranges = actionRanges(editor);
     const parent = editor.state.selection.$from.parent;
     const block = blocks.find(
       (b) => b.segmentId === parent.attrs.segmentId && b.id === parent.attrs.blockId,
@@ -597,60 +852,60 @@ export function TranscriptEditor({
     const b = blocks.find((b) => b.id === r.blockId && b.segmentId === r.segmentId);
     return b && r.from === 0 && r.to === b.text.length;
   });
+  useAppCommands({
+    find: () => onFindOpen?.(),
+    "cut-speech": () => {
+      if (editor) cut(editor);
+    },
+    original: () => inspect(!selection.length),
+  });
+
   return (
     <div className="flex h-full w-full flex-col">
       {findOpen && <FindReplacePanel onClose={() => onFindClose?.()} onResults={onSearchResults} />}
-      <div className="transcript-toolbar flex-wrap">
-        <span className="label">Transcript</span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => (findOpen ? onFindClose?.() : onFindOpen?.())}
-        >
-          Search
-        </Button>
-        <Button
-          size="sm"
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!selection.length}
-          onClick={() => editor && cut(editor)}
-          title="Remove selected audio/video (⌘⇧X)"
-        >
-          Cut speech ⌘⇧X
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={selection.length !== 1}
-          onClick={() => inspect(false)}
-        >
-          View original selection
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!blocks.length}
-          onClick={() => inspect(true)}
-        >
-          View paragraph original
-        </Button>
-        <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
-          Undo
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setReviewOpen(true)}>
-          Review fillers
-        </Button>
-        {fullParagraphSelected && (
-          <span className="text-xs text-muted-foreground">
-            Paragraph cut includes text-hidden speech
-          </span>
-        )}
-      </div>
-      <p className="px-4 text-xs text-muted-foreground">
-        Typing edits text only. Cmd-click seeks. Cut speech changes the video.
-      </p>
+      {cutSelection && (
+        <TranscriptCutPopover
+          selection={cutSelection}
+          onClose={closeCut}
+          isComposing={() => composed.current}
+        />
+      )}
+      <InlineReview
+        selection={selection}
+        isComposing={() => composed.current}
+        onAdvancedFillers={() => setReviewOpen(true)}
+        toolbarActions={
+          <>
+            <span className="label mr-2">Transcript</span>
+            <Button size="sm" variant="ghost" disabled={!past.length} onClick={() => history()}>
+              Undo
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!future.length}
+              onClick={() => history(true)}
+            >
+              Redo
+            </Button>
+            {selection.length > 0 && (
+              <Button
+                size="sm"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => editor && cut(editor)}
+                title="Preview and adjust selected audio/video cut (⌘⇧X)"
+              >
+                Cut speech
+              </Button>
+            )}
+          </>
+        }
+      />
+      {fullParagraphSelected && (
+        <p className="px-4 text-xs text-muted-foreground">
+          Paragraph cut includes text-hidden speech
+        </p>
+      )}
       {inspection && (
         <div
           className="border-b border-border px-4 py-2 text-sm"
@@ -722,15 +977,32 @@ export function TranscriptEditor({
             ))}
         </details>
       )}
-      <div className={`transcript-review-layout ${reviewOpen ? "review-open" : ""}`}>
+      <div className="transcript-review-layout">
         <div className="transcript-scroll min-w-0 flex-1" onClick={seek}>
           <EditorContent editor={editor} />
         </div>
         {reviewOpen && (
-          <FillerReviewPanel
-            key={`${project.id}:${projectSession()}`}
-            onClose={() => setReviewOpen(false)}
-          />
+          <Dialog open onOpenChange={setReviewOpen}>
+            <DialogContent
+              className="max-h-[85vh] overflow-y-auto"
+              onEscapeKeyDown={(event) => {
+                const details = (event.target as HTMLElement)?.closest("details[open]");
+                if (details) {
+                  event.preventDefault();
+                  details.removeAttribute("open");
+                }
+              }}
+            >
+              <DialogTitle>Filler settings and detailed review</DialogTitle>
+              <DialogDescription>
+                Detection settings, timing adjustments and retained audio.
+              </DialogDescription>
+              <FillerReviewPanel
+                key={`${project.id}:${projectSession()}`}
+                onClose={() => setReviewOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
         )}
       </div>
       {!blocks.length && (

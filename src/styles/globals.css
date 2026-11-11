@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+.is-script-applied { background: rgb(16 185 129 / 12%); border-bottom: 2px solid #10b981; }
+.is-script-pending { border-bottom: 2px dashed #38bdf8; }
+.is-script-off-script { text-decoration: underline wavy #a855f7; text-underline-offset: 4px; }
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -652,7 +656,9 @@
   color: hsl(var(--muted-foreground));
 }
 .timeline-header {
-  height: 36px;
+  min-height: 36px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -665,6 +671,9 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+.timeline-range-controls { display: flex; gap: 8px; }
+.timeline-range-controls label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.timeline-range-controls input { width: 78px; padding: 3px; border: 1px solid hsl(var(--border)); border-radius: 4px; background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .timeline-title {
   display: flex;
   align-items: center;
@@ -829,6 +838,9 @@
   filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.35));
 }
 .timeline-marker span {
+  pointer-events: auto;
+  cursor: ew-resize;
+  user-select: none;
   position: absolute;
   left: -10px;
   top: 2px;
@@ -955,3 +967,18 @@
 @container (max-width: 650px) { .filler-review { width: 46%; min-width: 245px; } }
 @media (max-width: 1050px) { .transcript-review-layout.review-open { flex-direction: column; } .review-open > .transcript-scroll { min-height: 120px; flex: 1; } .filler-review { width: 100%; max-height: 60%; border-left: 0; border-top: 1px solid hsl(var(--border)); } }
 .transcript-editor .is-review-current { outline: 2px solid hsl(var(--filler)); outline-offset: 2px; }
+
+/* Transcript review stays beside the phrase being reviewed. */
+select, option { color-scheme: dark; background-color: hsl(var(--background)); color: hsl(var(--foreground)); }
+.inline-review-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; padding: .25rem 1rem; border-bottom: 1px solid hsl(var(--border)); }
+.inline-review-toolbar select { border: 1px solid hsl(var(--border)); border-radius: .375rem; padding: .25rem; font-size: .8rem; }
+.inline-review-popover { position: fixed; z-index: 45; width: min(380px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; border: 1px solid hsl(var(--border)); border-radius: .75rem; background: hsl(var(--card)); color: hsl(var(--foreground)); padding: .75rem; box-shadow: 0 12px 36px #0009; font-size: .875rem; }
+.review-options { position: relative; margin-left: auto; font-size: .8rem; }
+.review-options summary { cursor: pointer; padding: .5rem; }
+.review-options-menu { position: absolute; right: 0; z-index: 46; display: grid; width: 260px; padding: .5rem; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: .5rem; }
+.is-script-pending, .is-script-off-script, .is-script-applied, .is-filler { cursor: pointer; }
+
+.inline-review-popover input { color-scheme: dark; background: hsl(var(--background)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: .25rem; padding: .25rem; }
+
+.transcript-editor .is-passage-selected { background: hsl(var(--primary) / .25); box-shadow: inset 0 -1px hsl(var(--primary) / .5); }
+.transcript-code { font-weight: 700; }

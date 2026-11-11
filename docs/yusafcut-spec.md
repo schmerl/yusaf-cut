@@ -10,6 +10,14 @@ An open-source desktop video editor for macOS (Apple Silicon) where **the transc
 
 This document includes the implemented manual transcript-correction and filler-review workflows. The original build phases remain as project history; the behavior specified below supersedes their earlier text-deletion and bulk-filler designs. Detailed requirements and acceptance records are linked from the relevant sections.
 
+Script-assisted corrections are planned in [feature 2 requirements](requirements/02-script-assisted-transcript-corrections.md).
+Development is at the [native review checkpoint](script-corrections-checkpoint.md).
+The prototype stores Markdown revisions, stages whole/selected local audio-backed
+suggestions, protects manual edits, persists review outcomes, and offers explicit
+off-script preview/cutting. Automatic wording correction remains disabled pending
+evaluation. The [acceptance audit](script-corrections-acceptance.md) separates
+implemented/tested behavior from outstanding native and acoustic acceptance.
+
 **Product name (working):** YusafCut
 **License:** AGPL-3.0 (or MIT — decide before first public release)
 **Target user:** Podcasters, YouTubers, course creators, journalists, anyone who edits talking-head or interview video.
@@ -466,7 +474,7 @@ to delete the word.
 
 - Use one matching policy for transcript highlighting, review candidates, and counts. Highlight vocal fillers by default, including bracketed recognition such as `[AH]`, `[UM]`, and `[UH]`, with case/punctuation normalization for matching while preserving the displayed spelling.
 - Offer selectable built-in terms and custom literal words/phrases. Ordinary words such as “like” and discourse phrases require explicit opt-in. Prefer longer overlapping phrase matches rather than duplicate candidates. Store detection choices in the project.
-- **Review fillers** opens a panel alongside the transcript, accessible from the transcript toolbar, Toolbox, and Search. Show the current occurrence, neighboring transcript context, source/output times, and queue position in playback order. Highlight the active occurrence in the editor.
+- **Review fillers** uses transcript highlights and an inline popover, accessible from the native Review menu and Toolbox. Compact category/previous/next navigation follows playback order. Playback and cut decisions stay beside the current phrase; detailed context, timing adjustments and detection settings are available on demand in a dialog.
 - Include fillers hidden by text-only corrections when their audio survives; label them **Text removed, audio retained**. Provide **Unreviewed**, **Kept**, **Audio retained**, and **All** filters. Resolved text-only decisions leave the default unresolved queue.
 - Keep decisions occurrence-specific, including repeated placements of the same media. Reconcile candidate identity after edits, splits, undo/redo, recognition replacement, and reload; stale candidates must not affect another source interval.
 
@@ -636,3 +644,48 @@ Then start on **Phase 0** above.
 ---
 
 **End of spec.** Ship it.
+
+### Development workflow update — inline script and filler review
+
+Opening can combine a recording with an optional Markdown script; later script
+changes live under File → Add / Replace Script. Native macOS File/Edit/Review/Window
+menus invoke the same application actions as visible controls, including project
+Undo/Redo. Script differences and fillers are reviewed by clicking transcript
+highlights, with Play and Accept/Dismiss or Preview cut/Cut/Keep in a contextual
+popover. A compact toolbar provides category and previous/next navigation; selected
+runs scope the queue to their passage without deleting other pending decisions.
+Text suggestions are available without a second transcription. Optional audio
+checking remains explicit and local; text-only similarity does not authorize
+automatic wording changes. Detailed evidence, script source/history and filler
+settings are on demand. Undo restores review actionability and cuts preserve
+transcript position. Automatic wording eligibility/application remains unfinished.
+
+Selected-passage review retains logical ranges when focus moves to native menus or
+toolbar controls, and shows the retained passage in the transcript. Metadata-only
+script attachment preserves that scope; changing text or opening a project clears
+stale scope. A missing script offers setup directly. Correction highlight tooltips
+show the proposed before → replacement text so whole-transcript review needs no
+manual paragraph selection.
+
+Inline review refinements: vocal fillers use filler decisions, not scripted word
+substitutions. Exact numeric notation can be proposed when digit/decimal values
+agree. A match with no inferred replacement is labeled Needs review with explicit
+custom text/dismissal options. Popovers allow user-entered text changes without
+cutting audio. Off-script cuts use selected source bounds with optional silence
+buffers; they preserve neighboring words/captions and show duration and following
+text before commit. A cut can split a displayed paragraph into retained fragments.
+
+Accept, Dismiss and saved custom wording advance through the combined unreviewed
+script/filler chain by default; filters and passage scope remain explicit. A saved
+Review log exposes before/after wording, decisions, times and source ranges. Users
+can locate surviving text, reopen decisions, revert unchanged accepted text, or
+undo the latest review action when applicable. Restoring cut audio requires Undo
+or existing snapshots. Original-word punctuation belongs to its off-script range;
+this does not permit arbitrary partial timing-group cuts.
+
+Entering an eligible filler automatically estimates its local audio boundaries;
+manual adjustments and explicit Preview/Cut approval remain available. Estimates
+must not apply after navigation, project/session changes or manual timing edits.
+A filler/off-script cut or filler text edit must preserve independent pending
+suggestions whose exact wording, anchors, timing and occurrence survive, even if
+the paragraph splits. Removed/changed targets must not be resurrected.

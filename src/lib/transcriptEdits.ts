@@ -1,4 +1,6 @@
 import { occurrenceLineage, reconcileFillerReview } from "./fillerReview";
+import type { EditProvenance } from "./scriptAssistance";
+import { reconcileScriptReview, rebaseReviewContexts } from "./scriptLifecycle";
 import { v4 as uuid } from "uuid";
 import { computeTimeline, deleteWords, type Project, type Segment } from "./edl";
 import {
@@ -23,12 +25,17 @@ function fail(message: string): never {
 }
 function finish(project: Project): Project {
   project = reconcileFillerReview(project);
+  project = reconcileScriptReview(project);
   validateProjectTranscripts(project);
   return { ...project, updatedAt: new Date().toISOString() };
 }
 
 /** A single replacement retains all affected anchors as one timing group. */
-export function replaceTranscriptText(project: Project, edit: TextEdit): Project {
+export function replaceTranscriptText(
+  project: Project,
+  edit: TextEdit,
+  provenance: EditProvenance = { author: "manual" },
+): Project {
   const normalized = normalizeProjectTranscripts(project);
   const block =
     projectTranscript(normalized).find(
@@ -61,12 +68,13 @@ export function replaceTranscriptText(project: Project, edit: TextEdit): Project
   const replacement =
     block.text.slice(start, edit.from) + edit.text + block.text.slice(edit.to, end);
   const anchors = stored.runs.slice(first, last + 1).flatMap((r) => r.anchorIds);
-  const leading = first > 0 && replacement.trim() ? replacement.match(/^\s*/u)![0] : "";
+  const leading = first > 0 ? replacement.match(/^\s*/u)![0] : "";
   const run = {
     ...stored.runs[first]!,
     text: replacement.slice(leading.length),
-    separatorBefore: leading,
+    separatorBefore: replacement.trim() ? leading : stored.runs[first]!.separatorBefore,
     anchorIds: anchors,
+    provenance,
   };
   const nextBlock = {
     ...stored,
@@ -93,6 +101,7 @@ export function replaceTranscriptBatch(
   project: Project,
   expected: Project,
   edits: TextEdit[],
+  provenance: EditProvenance = { author: "manual" },
 ): Project {
   if (project !== expected) fail("The transcript changed. Review the replacements again.");
   const sorted = [...edits].sort(
@@ -112,7 +121,7 @@ export function replaceTranscriptBatch(
       fail("Overlapping replacements are not supported.");
     previous = edit;
   }
-  return sorted.reduce(replaceTranscriptText, project);
+  return sorted.reduce((next, edit) => replaceTranscriptText(next, edit, provenance), project);
 }
 
 /** Selection restoration is explicit about expanding to complete timing groups.
@@ -173,6 +182,7 @@ export function restoreTranscriptRange(
                           text: originals.get(id)!.text,
                           separatorBefore: i || passage.wholeParagraph ? " " : r.separatorBefore,
                           anchorIds: [id],
+                          provenance: { author: "manual" as const },
                         })),
                   ),
                 },
@@ -235,7 +245,11 @@ export function cutTranscriptRanges(project: Project, ranges: TextRange[]): Proj
 
 /** Used by every EDL split/cut. Never discard the overlay of retained speech. */
 export function reconcileTranscript(source: Segment, target: Segment): Segment {
-  target = { ...target, precise: target.precise ?? source.precise, occurrenceLineage: occurrenceLineage(source) };
+  target = {
+    ...target,
+    precise: target.precise ?? source.precise,
+    occurrenceLineage: occurrenceLineage(source),
+  };
   if (!source.transcript) return target;
   const surviving = new Set(
     target.words
@@ -370,48 +384,54 @@ export function joinTranscriptBlocks(
 }
 
 export function cutOutputSpeech(project: Project, start: number, end: number): Project {
-  const from = Math.min(start, end),
-    to = Math.max(start, end);
-  const ranges: TextRange[] = [];
+  if (![start, end].every(Number.isFinite)) fail("Enter finite timeline cut boundaries.");
+  if (start === end) return project;
+  const selectionFrom = Math.min(start, end),
+    selectionTo = Math.max(start, end);
+  let from = selectionFrom,
+    to = selectionTo;
+  // Keep the existing whole-word policy for timed speech. Unlike a transcript
+  // selection, a timeline range also includes audio with no recognized words.
   for (const block of projectTranscript(project)) {
     for (const run of block.runs) {
-      if (run.outputEnd <= from || run.outputStart >= to || !run.text.trim()) continue;
-      if (run.anchorIds.length > 1 && (from > run.outputStart || to < run.outputEnd)) {
+      if (run.outputEnd <= selectionFrom || run.outputStart >= selectionTo || !run.text.trim())
+        continue;
+      if (
+        run.anchorIds.length > 1 &&
+        (selectionFrom > run.outputStart || selectionTo < run.outputEnd)
+      ) {
         fail("The range splits a corrected phrase. Select its whole audio span.");
       }
-      ranges.push({ segmentId: block.segmentId, blockId: block.id, from: run.from, to: run.to });
-    }
-    // A whole paragraph includes any text-hidden audio anchors.
-    if (
-      block.runs.length &&
-      from <= block.runs[0]!.outputStart &&
-      to >= block.runs.at(-1)!.outputEnd
-    ) {
-      ranges.push({
-        segmentId: block.segmentId,
-        blockId: block.id,
-        from: 0,
-        to: block.text.length,
-      });
+      from = Math.min(from, run.outputStart);
+      to = Math.max(to, run.outputEnd);
     }
   }
-  const edited = cutTranscriptRanges(project, ranges);
-  // Retained filler edges carry no words, so ordinary text selection cannot
-  // represent them. A timeline range can explicitly cut their exact audio.
   const entries = new Map(computeTimeline(project).map((entry) => [entry.segmentId, entry]));
   let changed = false;
-  const segments = edited.segments.flatMap((segment) => {
-    const entry = entries.get(segment.id);
-    if (!segment.fillerAudio || !entry || to <= entry.outputStart || from >= entry.outputEnd) return [segment];
+  const segments = project.segments.flatMap((segment) => {
+    const entry = entries.get(segment.id)!;
+    if (to <= entry.outputStart || from >= entry.outputEnd) return [segment];
     const cutStart = Math.max(segment.sourceIn, segment.sourceIn + from - entry.outputStart);
     const cutEnd = Math.min(segment.sourceOut, segment.sourceIn + to - entry.outputStart);
     changed = true;
     return [
-      ...(cutStart > segment.sourceIn ? [{ ...segment, id: uuid(), sourceOut: cutStart }] : []),
-      ...(cutEnd < segment.sourceOut ? [{ ...segment, id: uuid(), sourceIn: cutEnd }] : []),
-    ];
+      [segment.sourceIn, cutStart],
+      [cutEnd, segment.sourceOut],
+    ].flatMap(([sourceIn, sourceOut]) => {
+      if (sourceOut! - sourceIn! <= 1e-9) return [];
+      const words = segment.words.filter((word) => word.end > sourceIn! && word.start < sourceOut!);
+      const fragment = reconcileTranscript(segment, {
+        ...segment,
+        id: uuid(),
+        sourceIn: sourceIn!,
+        sourceOut: sourceOut!,
+        words,
+        precise: true,
+      });
+      return [words.length ? fragment : { ...fragment, transcript: undefined }];
+    });
   });
-  return changed ? finish({ ...edited, segments }) : edited;
+  return changed ? finish(rebaseReviewContexts(project, { ...project, segments })) : project;
 }
 
 export interface EditorParagraph {

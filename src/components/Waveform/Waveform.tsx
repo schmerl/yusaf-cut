@@ -31,6 +31,8 @@ import { useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { fillerCandidates } from "@/lib/fillerReview";
 import { formatTimecode } from "@/lib/timecode";
+import { Button } from "@/components/ui/button";
+import { cutTimelineSelection } from "@/lib/appCommands";
 
 function amplitude(word: Word, index: number): number {
   let hash = index + 17;
@@ -48,6 +50,8 @@ const MINIMAP_HEIGHT_PX = 14;
 export function Waveform() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
+  const markerDragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => markerDragCleanup.current?.(), []);
   const project = useProjectStore((s) => s.project);
   const currentTime = usePlayerStore((s) => s.currentTime);
   const selectedWordIds = usePlayerStore((s) => s.selectedWordIds);
@@ -244,7 +248,7 @@ export function Waveform() {
   }, [project, pxPerSecond, selectedWordIds, visibleEndSec, visibleStartSec]);
 
   // ── Pointer geometry ─────────────────────────────────────────────────────
-  function outputTimeFromPointer(e: React.MouseEvent<HTMLDivElement>) {
+  function outputTimeFromPointer(e: { clientX: number }) {
     const rail = railRef.current;
     if (!rail || railWidth <= 0) return null;
     const rect = rail.getBoundingClientRect();
@@ -264,11 +268,57 @@ export function Waveform() {
   }
 
   function updateSelection(markIn: number, markOut: number) {
+    window.dispatchEvent(new CustomEvent("yusafcut:pause"));
+    usePlayerStore.getState().setPlaying(false);
     setTimelineRange(markIn, markOut);
     setSelectedWordIds(wordIdsInOutputRange(project, markIn, markOut));
   }
 
+  function adjustMarker(side: "in" | "out", value: number) {
+    if (!Number.isFinite(value)) return;
+    const player = usePlayerStore.getState();
+    const time = Math.max(0, Math.min(duration, value));
+    const from = side === "in" ? time : player.timelineMarkIn;
+    const to = side === "out" ? time : player.timelineMarkOut;
+    if (from !== null && to !== null) updateSelection(from, to);
+    else setTimelineRange(from, to);
+  }
+  function dragMarker(event: React.MouseEvent, side: "in" | "out") {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    (event.currentTarget as HTMLElement).focus();
+    markerDragCleanup.current?.();
+    const move = (next: MouseEvent) => {
+      const time = outputTimeFromPointer(next);
+      if (time !== null) adjustMarker(side, time);
+    };
+    const finish = (release?: MouseEvent) => {
+      // Consume the release before the rail can treat a marker drag as a click.
+      release?.preventDefault();
+      release?.stopPropagation();
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", finish, true);
+      markerDragCleanup.current = null;
+    };
+    markerDragCleanup.current = finish;
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", finish, true);
+  }
+  function playSelection() {
+    if (timelineMarkIn === null || timelineMarkOut === null || timelineMarkIn === timelineMarkOut)
+      return;
+    window.dispatchEvent(
+      new CustomEvent("yusafcut:seek-output", {
+        detail: { time: Math.min(timelineMarkIn, timelineMarkOut), play: true },
+      }),
+    );
+  }
+
   function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.focus({ preventScroll: true });
     const outputTime = outputTimeFromPointer(e);
     if (outputTime === null) return;
     setDragStart(outputTime);
@@ -345,7 +395,7 @@ export function Waveform() {
   const minimapPlayheadLeft = duration > 0 ? (currentTime / duration) * MINIMAP_WIDTH_PX : 0;
 
   return (
-    <div className="timeline-panel">
+    <div className="timeline-panel" role="region" aria-label="Timeline">
       <div className="timeline-header">
         <div className="timeline-title">
           Timeline
@@ -385,16 +435,55 @@ export function Waveform() {
           </div>
         )}
 
+        {hasTimelineRange && (
+          <div className="timeline-range-controls">
+            {(["in", "out"] as const).map((side) => (
+              <label key={side}>
+                {side === "in" ? "I" : "O"} (s)
+                <input
+                  type="number"
+                  min={0}
+                  max={duration}
+                  step="0.01"
+                  aria-label={side === "in" ? "Timeline in time" : "Timeline out time"}
+                  value={Number((side === "in" ? timelineMarkIn! : timelineMarkOut!).toFixed(3))}
+                  onChange={(event) => {
+                    if (event.target.value !== "") adjustMarker(side, Number(event.target.value));
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!hasTimelineRange || timelineMarkIn === timelineMarkOut}
+          onClick={playSelection}
+        >
+          Play selection
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!hasTimelineRange || timelineMarkIn === timelineMarkOut}
+          onClick={cutTimelineSelection}
+        >
+          Cut selection
+        </Button>
         <div className="timeline-help">
           {zoomed
-            ? `drag selects · I/O mark range · ⌘+scroll to zoom · zoom ${timelineZoom.toFixed(1)}x`
-            : `drag selects · I/O mark range · zoom ${timelineZoom.toFixed(1)}x`}
+            ? `drag selects · I/O mark range · ⌘⇧X cuts · ⌘+scroll to zoom · zoom ${timelineZoom.toFixed(1)}x`
+            : `drag selects · I/O mark range · ⌘⇧X cuts · zoom ${timelineZoom.toFixed(1)}x`}
         </div>
       </div>
 
       <div ref={scrollRef} className={zoomed ? "timeline-scroll is-zoomed" : "timeline-scroll"}>
         <div
           ref={railRef}
+          tabIndex={0}
+          aria-label="Timeline selection"
+          title="Bars show transcript word timings. Blank areas can still contain sound and can be selected and cut."
           className="timeline-rail"
           style={{ width: railWidth || "100%" }}
           onMouseDown={handleMouseDown}
@@ -436,12 +525,54 @@ export function Waveform() {
             </div>
           )}
           {markInPx !== null && (
-            <div className="timeline-marker is-in" style={{ left: markInPx }}>
+            <div
+              className="timeline-marker is-in"
+              style={{ left: markInPx }}
+              role="slider"
+              tabIndex={0}
+              aria-label="In marker"
+              aria-valuemin={0}
+              aria-valuemax={duration}
+              aria-valuenow={timelineMarkIn!}
+              onMouseDown={(event) => dragMarker(event, "in")}
+              onKeyDown={(event) => {
+                if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  adjustMarker(
+                    "in",
+                    timelineMarkIn! +
+                      (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 0.1 : 0.01),
+                  );
+                }
+              }}
+            >
               <span>I</span>
             </div>
           )}
           {markOutPx !== null && (
-            <div className="timeline-marker is-out" style={{ left: markOutPx }}>
+            <div
+              className="timeline-marker is-out"
+              style={{ left: markOutPx }}
+              role="slider"
+              tabIndex={0}
+              aria-label="Out marker"
+              aria-valuemin={0}
+              aria-valuemax={duration}
+              aria-valuenow={timelineMarkOut!}
+              onMouseDown={(event) => dragMarker(event, "out")}
+              onKeyDown={(event) => {
+                if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  adjustMarker(
+                    "out",
+                    timelineMarkOut! +
+                      (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 0.1 : 0.01),
+                  );
+                }
+              }}
+            >
               <span>O</span>
             </div>
           )}

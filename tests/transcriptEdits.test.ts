@@ -134,7 +134,8 @@ describe("text operations preserve source anchors and timeline", () => {
     const srt = buildSrt(p),
       vtt = buildVtt(p);
     expect(srt).toContain("idempotency are not the serveur.");
-    expect(vtt).toContain("00:00:00.000 --> 00:00:03.000");
+    // Grouping is independent of occurrence/paragraph splits.
+    expect(vtt).toContain("00:00:00.000 --> 00:00:06.000");
     expect(srt).toContain("item potency aren’t the old server.");
     expect(srt.match(/idempotency/g)).toHaveLength(1);
   });

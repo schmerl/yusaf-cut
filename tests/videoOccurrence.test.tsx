@@ -6,6 +6,7 @@ import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import type { Project } from "@/lib/edl";
 import fixture from "./fixtures/transcript-corrections.json";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path }));
 vi.mock("@/hooks/useVideoFrameClock", () => ({ useVideoFrameClock: vi.fn() }));
 
@@ -29,8 +30,64 @@ function tick(video: HTMLVideoElement, sourceTime: number) {
   video.currentTime = sourceTime;
   fireEvent.timeUpdate(video);
 }
+function KeyboardPreview() {
+  useKeyboardShortcuts();
+  return <VideoPreview />;
+}
 
 describe("VideoPreview retains the selected source occurrence", () => {
+  it("uses the marked interval for Space playback even when it contains no words", () => {
+    const { container } = render(<KeyboardPreview />);
+    const video = container.querySelector("video")!;
+    act(() => usePlayerStore.getState().setTimelineRange(1.03, 1.08));
+    fireEvent.keyDown(document.body, { key: " " });
+    expect(video.currentTime).toBeCloseTo(1.03);
+    tick(video, 1.1);
+    expect(usePlayerStore.getState().playing).toBe(false);
+    expect(usePlayerStore.getState().currentTime).toBeCloseTo(1.08);
+  });
+  it("skips a cut in wordless audio during native playback", () => {
+    const p = structuredClone(fixture) as Project;
+    p.media.m1!.duration = 300;
+    p.segments = [
+      { id: "left", mediaId: "m1", sourceIn: 239.67, sourceOut: 239.72, words: [], precise: true },
+      { id: "right", mediaId: "m1", sourceIn: 240.22, sourceOut: 240.35, words: [], precise: true },
+    ];
+    replaceProjectBaseline(p);
+    const { container } = render(<VideoPreview />);
+    const video = container.querySelector("video")!;
+    seek(0, true);
+    tick(video, 239.72);
+    expect(video.currentTime).toBeCloseTo(240.22);
+    expect(usePlayerStore.getState().currentTime).toBeCloseTo(0.05);
+    expect(usePlayerStore.getState().playing).toBe(true);
+  });
+  it("starts at In and stops at Out when using the main Play button", () => {
+    const { container } = render(<VideoPreview />);
+    const video = container.querySelector("video")!;
+    act(() => usePlayerStore.getState().setTimelineRange(1.2, 1.7));
+    fireEvent.click(screen.getByRole("button", { name: /^Play/ }));
+    expect(video.currentTime).toBeCloseTo(1.2);
+    expect(usePlayerStore.getState().playing).toBe(true);
+    tick(video, 1.8);
+    expect(usePlayerStore.getState().playing).toBe(false);
+    expect(usePlayerStore.getState().currentTime).toBeCloseTo(1.7);
+    expect(video.currentTime).toBeCloseTo(1.7);
+  });
+  it("limits marked playback across repeated source clips and handles reversed markers", () => {
+    const { container } = render(<VideoPreview />);
+    const video = container.querySelector("video")!;
+    act(() => usePlayerStore.getState().setTimelineRange(4.2, 2.8));
+    act(() => window.dispatchEvent(new CustomEvent("yusafcut:play")));
+    expect(video.currentTime).toBeCloseTo(2.8);
+    tick(video, 3);
+    expect(video.currentTime).toBe(0);
+    expect(usePlayerStore.getState().playing).toBe(true);
+    tick(video, 1.3);
+    expect(usePlayerStore.getState().playing).toBe(false);
+    expect(usePlayerStore.getState().currentTime).toBeCloseTo(4.2);
+    expect(video.currentTime).toBeCloseTo(1.2);
+  });
   it("Cmd-click on the second aren't stays at 4.1s after native timeupdate", () => {
     const { container } = render(
       <>

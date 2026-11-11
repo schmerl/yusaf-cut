@@ -1,5 +1,8 @@
+import { validateReviewLog } from "./reviewLog";
+import { scriptCodeSpans, type CodeSpan } from "./scriptCodeFormatting";
 /** Phase 1 foundations. Pure APIs; the legacy editor does not write overlays yet. */
 import { validateFillerReview } from "./fillerReview";
+import { validateScriptAssistance, type EditProvenance } from "./scriptAssistance";
 import { computeTimeline, type Project, type Segment, type Word } from "./edl";
 
 export interface TranscriptRun {
@@ -8,6 +11,7 @@ export interface TranscriptRun {
   /** Explicit spacing, retained for later inline editing; ignored for hidden runs. */
   separatorBefore: string;
   anchorIds: string[];
+  provenance?: EditProvenance;
 }
 
 export interface TranscriptBlock {
@@ -28,6 +32,7 @@ export interface ProjectedRun {
   text: string;
   originalText: string;
   anchorIds: string[];
+  provenance?: EditProvenance;
   /** UTF-16 offsets within the block's displayed text, end exclusive. */
   from: number;
   to: number;
@@ -44,6 +49,8 @@ export interface ProjectedBlock {
   mediaId: string;
   text: string;
   runs: ProjectedRun[];
+  /** Formatting projected from the active script; never literal HTML wording. */
+  codeSpans?: CodeSpan[];
 }
 
 function survivingWords(segment: Segment): Word[] {
@@ -139,6 +146,19 @@ export function validateTranscript(
         "duplicate/empty run ID",
       );
       ids.add(run.id);
+      if (run.provenance) {
+        requireValid(
+          ["manual", "script", "review"].includes(run.provenance.author),
+          "unsupported edit author",
+        );
+        requireValid(
+          run.provenance.recordId === undefined ||
+            (typeof run.provenance.recordId === "string" &&
+              run.provenance.recordId.length > 0 &&
+              run.provenance.recordId.length <= 128),
+          "invalid provenance record",
+        );
+      }
       requireValid(
         typeof run.text === "string" &&
           typeof run.separatorBefore === "string" &&
@@ -164,6 +184,8 @@ export function validateTranscript(
 export function validateProjectTranscripts(project: Project): void {
   requireValid(project.version === 1, "unsupported project version");
   validateFillerReview(project);
+  validateScriptAssistance(project);
+  validateReviewLog(project);
   const occurrences = new Set<string>();
   const segments = new Set<string>();
   for (const segment of project.segments) {
@@ -201,7 +223,7 @@ export function normalizeProjectTranscripts(project: Project): Project {
 export function projectTranscript(project: Project): ProjectedBlock[] {
   const normalized = normalizeProjectTranscripts(project);
   const timeline = computeTimeline(normalized);
-  return normalized.segments.flatMap((segment, i) => {
+  const blocks: ProjectedBlock[] = normalized.segments.flatMap((segment, i) => {
     const metadata = segment.transcript;
     if (!metadata) return [];
     const entry = timeline[i]!;
@@ -220,6 +242,7 @@ export function projectTranscript(project: Project): ProjectedBlock[] {
           text: run.text,
           originalText: anchors.map((w) => w.text).join(" "),
           anchorIds: [...run.anchorIds],
+          ...(run.provenance ? { provenance: run.provenance } : {}),
           from,
           to: text.length,
           sourceStart,
@@ -237,5 +260,23 @@ export function projectTranscript(project: Project): ProjectedBlock[] {
         runs,
       };
     });
+  });
+  const spans = scriptCodeSpans(project, blocks.map((block) => block.text).join("\n"));
+  if (!spans.length) return blocks;
+  let offset = 0;
+  return blocks.map((block) => {
+    const start = offset,
+      end = start + block.text.length;
+    offset = end + 1;
+    const codeSpans = spans
+      .filter((span) => span.from < end && span.to > start)
+      .map((span) => ({
+        from: Math.max(0, span.from - start),
+        to: Math.min(block.text.length, span.to - start),
+        quote: span.quote,
+        open: span.from >= start,
+        close: span.to <= end,
+      }));
+    return codeSpans.length ? { ...block, codeSpans } : block;
   });
 }
