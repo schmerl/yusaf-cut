@@ -4,6 +4,7 @@ import { useNativeMenu } from "@/hooks/useNativeMenu";
 import { useAppCommands } from "@/lib/appCommands";
 import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { newProject } from "@/lib/edl";
+import fixture from "./fixtures/transcript-corrections.json";
 const native = vi.hoisted(() => ({
   items: new Map<string, { action: () => void; setEnabled: ReturnType<typeof vi.fn> }>(),
   setMenu: vi.fn(),
@@ -32,6 +33,22 @@ beforeEach(() => {
   native.setMenu.mockClear();
   native.close.mockClear();
   replaceProjectBaseline(newProject("Before"));
+});
+it("enables native timeline cuts for wordless media while leaving transcript commands disabled", async () => {
+  render(<Harness open={vi.fn()} />);
+  await waitFor(() => expect(native.setMenu).toHaveBeenCalledOnce());
+  expect(native.items.get("cut-speech")!.setEnabled).toHaveBeenLastCalledWith(false);
+  const p = {
+    ...newProject("Untranscribed"),
+    media: { m1: fixture.media.m1 },
+    segments: [{ id: "untranscribed", mediaId: "m1", sourceIn: 0, sourceOut: 3, words: [] }],
+  };
+  act(() => replaceProjectBaseline(p));
+  expect(native.items.get("cut-speech")!.setEnabled).toHaveBeenLastCalledWith(true);
+  expect(native.items.get("review-script")!.setEnabled).toHaveBeenLastCalledWith(false);
+  expect(native.items.get("original")!.setEnabled).toHaveBeenLastCalledWith(false);
+  act(() => replaceProjectBaseline(newProject("Empty")));
+  expect(native.items.get("cut-speech")!.setEnabled).toHaveBeenLastCalledWith(false);
 });
 afterEach(() => {
   cleanup();

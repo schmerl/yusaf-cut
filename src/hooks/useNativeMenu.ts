@@ -116,9 +116,9 @@ export function useNativeMenu() {
         for (const item of items) {
           const enabled =
             item.id.startsWith("review-") ||
-            ["format-script", "original", "cut-speech", "script-sync"].includes(item.id)
+            ["format-script", "original", "script-sync"].includes(item.id)
               ? hasWords && (!["format-script"].includes(item.id) || !!project.scriptAssistance)
-              : ["export", "captions", "script"].includes(item.id)
+              : ["export", "captions", "script", "cut-speech"].includes(item.id)
                 ? project.segments.length > 0
                 : true;
           void item.setEnabled(
