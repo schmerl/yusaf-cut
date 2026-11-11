@@ -145,3 +145,33 @@ it("adjusts markers by dragging, numeric input and arrow keys without editing th
   window.removeEventListener("yusafcut:seek-output", play);
   expect(useProjectStore.getState().project).toBe(before);
 });
+it.each(["in", "out"])(
+  "does not seek or start playback when releasing the %s marker over the rail",
+  (side) => {
+    render(<Harness />);
+    const rail = selectTimeline(100, 200);
+    const seek = vi.fn();
+    window.addEventListener("yusafcut:seek-output", seek);
+    try {
+      const beforeTime = usePlayerStore.getState().currentTime;
+      const marker = screen.getByRole("slider", {
+        name: side === "in" ? "In marker" : "Out marker",
+      });
+      fireEvent.mouseDown(marker, { clientX: side === "in" ? 100 : 200, button: 0 });
+      fireEvent.mouseMove(rail, { clientX: 150 });
+      fireEvent.mouseUp(rail, { clientX: 150, button: 0 });
+      expect(usePlayerStore.getState().playing).toBe(false);
+      expect(usePlayerStore.getState().currentTime).toBe(beforeTime);
+      expect(seek).not.toHaveBeenCalled();
+      expect(usePlayerStore.getState()[side === "in" ? "timelineMarkIn" : "timelineMarkOut"]).toBe(
+        1.5,
+      );
+      // The marker's release listener must not consume later ordinary rail clicks.
+      fireEvent.mouseDown(rail, { clientX: 300, button: 0 });
+      fireEvent.mouseUp(rail, { clientX: 300, button: 0 });
+      expect(seek).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("yusafcut:seek-output", seek);
+    }
+  },
+);

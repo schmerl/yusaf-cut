@@ -293,14 +293,17 @@ export function Waveform() {
       const time = outputTimeFromPointer(next);
       if (time !== null) adjustMarker(side, time);
     };
-    const finish = () => {
+    const finish = (release?: MouseEvent) => {
+      // Consume the release before the rail can treat a marker drag as a click.
+      release?.preventDefault();
+      release?.stopPropagation();
       window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", finish);
+      window.removeEventListener("mouseup", finish, true);
       markerDragCleanup.current = null;
     };
     markerDragCleanup.current = finish;
     window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", finish);
+    window.addEventListener("mouseup", finish, true);
   }
   function playSelection() {
     if (timelineMarkIn === null || timelineMarkOut === null || timelineMarkIn === timelineMarkOut)
