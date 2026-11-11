@@ -172,6 +172,7 @@ export function RenderedTimelinePlayback({
     const el = video.current;
     if (!el) return;
     el.muted = muted;
+    el.defaultPlaybackRate = rate;
     el.playbackRate = rate;
     if (!playing || suspended) el.pause();
     else if (el.getAttribute("src") && el.readyState >= 3 && !error) {

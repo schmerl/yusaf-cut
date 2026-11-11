@@ -110,6 +110,11 @@ it("plays the committed adjusted ex- cut through the same renderer as its previe
 });
 
 it("renders long recordings in bounded windows, prefetches only the next window and releases played files", async () => {
+  // Browsers reset the current rate to the default when loading new media.
+  vi.mocked(HTMLMediaElement.prototype.load).mockImplementation(function (this: HTMLMediaElement) {
+    this.playbackRate = this.defaultPlaybackRate;
+  });
+  usePlayerStore.getState().setRate(1.5);
   const listeners = vi.spyOn(HTMLMediaElement.prototype, "addEventListener");
   const { proposal } = cutProject();
   const p: Project = {
@@ -128,6 +133,9 @@ it("renders long recordings in bounded windows, prefetches only the next window 
   replaceProjectBaseline(p);
   render(<VideoPreview />);
   const edited = await play();
+  expect(edited.playbackRate).toBe(1.5);
+  act(() => usePlayerStore.getState().setRate(2));
+  expect(edited.playbackRate).toBe(2);
   const oldEnded = listeners.mock.calls.find(
     (call, index) => call[0] === "ended" && listeners.mock.contexts[index] === edited,
   )![1] as EventListener;
@@ -137,6 +145,7 @@ it("renders long recordings in bounded windows, prefetches only the next window 
   ]);
   const first = vi.mocked(prepareFillerAudition).mock.calls[0]![3];
   await act(async () => fireEvent.ended(edited));
+  expect(edited.playbackRate).toBe(2);
   expect(prepareFillerAudition).toHaveBeenLastCalledWith(p, 40, 50, expect.any(String));
   expect(releaseFillerAudition).toHaveBeenCalledWith(first);
   edited.currentTime = 0.25;
