@@ -235,11 +235,15 @@ pub async fn stop_native_recording(state: State<'_, AppState>) -> Result<String,
 /// Stream decoded PCM into 20ms peak buckets; never retain the full audio in memory.
 #[tauri::command]
 pub async fn audio_peaks(app: AppHandle, path: String) -> Result<Vec<f32>, String> {
+    if !std::path::Path::new(&path).is_file() {
+        return Err("Waveform source is unavailable locally. Relink it and retry.".into());
+    }
     let (mut rx, child) = app
         .shell()
         .sidecar("ffmpeg")
         .map_err(|e| e.to_string())?
         .args([
+            "-protocol_whitelist", "file,pipe",
             "-v", "error", "-nostdin", "-i", &path, "-map", "0:a:0", "-vn", "-ac", "1", "-ar",
             "24000", "-f", "s16le", "pipe:1",
         ])
