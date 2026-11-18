@@ -67,6 +67,17 @@ function readDocument(doc: PMNode): EditorParagraph[] {
   );
   return blocks;
 }
+function byBlock<T extends { segmentId: string; blockId: string }>(items: T[]) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = `${item.segmentId}:${item.blockId}`;
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+  return groups;
+}
+
 function selectedRanges(editor: Editor): TextRange[] {
   const { from, to } = editor.state.selection;
   if (from === to) return [];
@@ -114,17 +125,21 @@ export function TranscriptEditor({
   const projectionCache = useRef<{
     project: Project;
     blocks: Map<string, ProjectedBlock>;
-    fillers: FillerCandidate[];
-    scripts: {
-      id: string;
-      segmentId: string;
-      blockId: string;
-      from: number;
-      to: number;
-      status: string;
-      label: string;
-    }[];
+    fillers: Map<string, FillerCandidate[]>;
+    scripts: Map<
+      string,
+      {
+        id: string;
+        segmentId: string;
+        blockId: string;
+        from: number;
+        to: number;
+        status: string;
+        label: string;
+      }[]
+    >;
   } | null>(null);
+  const decorationCache = useRef<{ inputs: unknown[]; decorations: DecorationSet } | null>(null);
   const pauseTokens = useProjectStore((s) => s.pauseTokens);
   const past = useTemporalProjectStore((s) => s.pastStates);
   const blocks = useMemo(() => projectTranscript(project), [project]);
@@ -143,6 +158,7 @@ export function TranscriptEditor({
   const selectionRef = useRef<TextRange[]>([]);
   const leavingEditor = useRef(false);
   function rememberSelection(ranges: TextRange[]) {
+    if (!ranges.length && !selectionRef.current.length) return;
     selectionRef.current = ranges;
     setSelection(ranges);
   }
@@ -251,51 +267,70 @@ export function TranscriptEditor({
               },
               props: {
                 decorations: (state) => {
+                  const inputs = [
+                    state.doc,
+                    model.current,
+                    playback.current,
+                    auditionRef.current,
+                    timelineSelection.current.from,
+                    timelineSelection.current.to,
+                    reviewIdRef.current,
+                    searchResults.current,
+                    selectionRef.current,
+                    leavingEditor.current,
+                    cutSelectionRef.current,
+                  ];
+                  const cached = decorationCache.current;
+                  if (cached && inputs.every((input, i) => input === cached.inputs[i]))
+                    return cached.decorations;
                   if (projectionCache.current?.project !== model.current) {
                     const scriptBlocks = projectTranscript(model.current);
                     projectionCache.current = {
                       project: model.current,
-                      fillers: fillerCandidates(model.current).filter((c) => !c.hidden),
+                      fillers: byBlock(
+                        fillerCandidates(model.current, scriptBlocks).filter((c) => !c.hidden),
+                      ),
                       blocks: new Map(scriptBlocks.map((b) => [`${b.segmentId}:${b.id}`, b])),
-                      scripts: (model.current.scriptAssistance?.records ?? []).flatMap((record) => {
-                        if (
-                          !["applied", "suggested", "off-script"].includes(record.status) ||
-                          (record.status !== "applied" && isVocalFillerOnly(record.beforeText))
-                        )
-                          return [];
-                        const location = locateScriptRecord(model.current, record, scriptBlocks);
-                        return location
-                          ? [
-                              {
-                                id: record.id,
-                                label:
-                                  record.beforeText !== record.afterText
-                                    ? `${record.beforeText} → ${record.afterText}`
-                                    : record.status === "off-script"
-                                      ? "Possible off-script speech"
-                                      : "Uncertain script match",
-                                segmentId: location.block.segmentId,
-                                blockId: location.block.id,
-                                from: location.from,
-                                to: location.to,
-                                status:
-                                  record.status === "applied"
-                                    ? "applied"
-                                    : record.status === "off-script"
-                                      ? "off-script"
-                                      : "pending",
-                              },
-                            ]
-                          : [];
-                      }),
+                      scripts: byBlock(
+                        (model.current.scriptAssistance?.records ?? []).flatMap((record) => {
+                          if (
+                            !["applied", "suggested", "off-script"].includes(record.status) ||
+                            (record.status !== "applied" && isVocalFillerOnly(record.beforeText))
+                          )
+                            return [];
+                          const location = locateScriptRecord(model.current, record, scriptBlocks);
+                          return location
+                            ? [
+                                {
+                                  id: record.id,
+                                  label:
+                                    record.beforeText !== record.afterText
+                                      ? `${record.beforeText} → ${record.afterText}`
+                                      : record.status === "off-script"
+                                        ? "Possible off-script speech"
+                                        : "Uncertain script match",
+                                  segmentId: location.block.segmentId,
+                                  blockId: location.block.id,
+                                  from: location.from,
+                                  to: location.to,
+                                  status:
+                                    record.status === "applied"
+                                      ? "applied"
+                                      : record.status === "off-script"
+                                        ? "off-script"
+                                        : "pending",
+                                },
+                              ]
+                            : [];
+                        }),
+                      ),
                     };
                   }
                   const projected = projectionCache.current.blocks;
                   const decorations: Decoration[] = [];
                   state.doc.forEach((node, pos) => {
-                    const block = projected.get(
-                      `${String(node.attrs.segmentId)}:${String(node.attrs.blockId)}`,
-                    );
+                    const key = `${String(node.attrs.segmentId)}:${String(node.attrs.blockId)}`;
+                    const block = projected.get(key);
                     // Draft composition text has not yet been assigned audio anchors.
                     if (!block || block.text !== node.textContent) return;
                     decorations.push(
@@ -352,7 +387,7 @@ export function TranscriptEditor({
                       }
                     }
                     const search = searchResults.current;
-                    for (const marker of projectionCache.current!.scripts) {
+                    for (const marker of projectionCache.current!.scripts.get(key) ?? []) {
                       if (marker.segmentId === block.segmentId && marker.blockId === block.id)
                         decorations.push(
                           Decoration.inline(pos + 1 + marker.from, pos + 1 + marker.to, {
@@ -386,7 +421,7 @@ export function TranscriptEditor({
                           );
                       });
                     }
-                    for (const candidate of projectionCache.current!.fillers) {
+                    for (const candidate of projectionCache.current!.fillers.get(key) ?? []) {
                       if (candidate.segmentId === block.segmentId && candidate.blockId === block.id)
                         decorations.push(
                           Decoration.inline(pos + 1 + candidate.from, pos + 1 + candidate.to, {
@@ -449,7 +484,9 @@ export function TranscriptEditor({
                       );
                     }
                   });
-                  return DecorationSet.create(state.doc, decorations);
+                  const result = DecorationSet.create(state.doc, decorations);
+                  decorationCache.current = { inputs, decorations: result };
+                  return result;
                 },
                 handlePaste: (view, event) => {
                   event.preventDefault();
@@ -658,6 +695,7 @@ export function TranscriptEditor({
   }
 
   const editor = useEditor({
+    shouldRerenderOnTransaction: false,
     extensions: [Document, TimedParagraph, Text, integration],
     content: documentFor(blocks),
     editable: true,

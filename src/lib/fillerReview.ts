@@ -1,5 +1,5 @@
 import { computeTimeline, type Project, type Segment } from "./edl";
-import { projectTranscript, type ProjectedRun } from "./transcript";
+import { projectTranscript, type ProjectedBlock, type ProjectedRun } from "./transcript";
 import {
   defaultFillerPolicy,
   fillerTokens,
@@ -63,17 +63,24 @@ export function occurrenceLineage(segment: Segment): string {
 }
 
 /** Pure projection. Hidden baselines are consulted only for entirely empty runs. */
-export function fillerCandidates(project: Project): FillerCandidate[] {
+export function fillerCandidates(
+  project: Project,
+  projectedBlocks?: ProjectedBlock[],
+): FillerCandidate[] {
   const policy = project.fillerReview?.policy ?? defaultFillerPolicy();
   // Validation of review records must not recursively project them.
-  const blocks = projectTranscript({
-    ...project,
-    fillerReview: undefined,
-    scriptAssistance: undefined,
-  });
+  // Callers that already projected this revision can share its validated blocks.
+  const blocks =
+    projectedBlocks ??
+    projectTranscript({
+      ...project,
+      fillerReview: undefined,
+      scriptAssistance: undefined,
+    });
+  const segments = new Map(project.segments.map((segment) => [segment.id, segment]));
   const candidates: FillerCandidate[] = [];
   for (const block of blocks) {
-    const segment = project.segments.find((s) => s.id === block.segmentId)!;
+    const segment = segments.get(block.segmentId)!;
     const lineage = occurrenceLineage(segment);
     const emit = (text: string, runs: ProjectedRun[], hidden: boolean, base: number) => {
       for (const match of matchFillers(text, policy)) {
@@ -172,7 +179,7 @@ export function fillerCandidates(project: Project): FillerCandidate[] {
   }
   const residuals = new Map<string, FillerCandidate>();
   for (const entry of computeTimeline(project)) {
-    const segment = project.segments.find((s) => s.id === entry.segmentId)!;
+    const segment = segments.get(entry.segmentId)!;
     const audio = segment.fillerAudio;
     if (!audio) continue;
     const previous = residuals.get(audio.candidateId);

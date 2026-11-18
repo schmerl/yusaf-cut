@@ -7,7 +7,11 @@ import {
   totalDuration,
   type Project,
 } from "@/lib/edl";
-import { projectTranscript, validateProjectTranscripts } from "@/lib/transcript";
+import {
+  normalizeProjectTranscripts,
+  projectTranscript,
+  validateProjectTranscripts,
+} from "@/lib/transcript";
 import {
   replaceTranscriptText,
   editBlockText,
@@ -201,4 +205,19 @@ it("rejects unsupported cross-paragraph editor replacements and preserves model 
     applyTranscriptDocument(p, [{ segmentId: "s1", blockId: "forged", text: "replacement" }]),
   ).toThrow();
   expect(JSON.stringify(p)).toBe(before);
+});
+
+it("single-paragraph document edits preserve other paragraphs and all source anchors", () => {
+  const p = normalizeProjectTranscripts(project());
+  const blocks = projectTranscript(p);
+  const paragraphs = blocks.map((b) => ({ segmentId: b.segmentId, blockId: b.id, text: b.text }));
+  paragraphs[0]!.text = "Corrected sentence.";
+  const next = applyTranscriptDocument(p, paragraphs);
+  expect(projectTranscript(next).map((b) => b.text)).toEqual(paragraphs.map((b) => b.text));
+  expect(next.segments[1]).toBe(p.segments[1]);
+  expect(next.segments[0]!.words).toBe(p.segments[0]!.words);
+  expect(next.segments[0]!.transcript!.originals).toBe(p.segments[0]!.transcript!.originals);
+  expect(computeTimeline(next)).toEqual(computeTimeline(p));
+  paragraphs[0]!.text = " ";
+  expect(() => applyTranscriptDocument(p, paragraphs)).toThrow(/retain text/);
 });

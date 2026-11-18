@@ -214,7 +214,8 @@ export function normalizeProjectTranscripts(project: Project): Project {
     changed = true;
     return { ...segment, transcript };
   });
-  const normalized = changed ? { ...project, segments } : project;
+  if (!changed) return project; // The unchanged input was already validated above.
+  const normalized = { ...project, segments };
   validateProjectTranscripts(normalized);
   return normalized;
 }

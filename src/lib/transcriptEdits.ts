@@ -8,6 +8,7 @@ import {
   projectTranscript,
   validateProjectTranscripts,
   type TranscriptBlock,
+  type ProjectedBlock,
 } from "./transcript";
 
 export interface TextRange {
@@ -41,6 +42,17 @@ export function replaceTranscriptText(
     projectTranscript(normalized).find(
       (b) => b.segmentId === edit.segmentId && b.id === edit.blockId,
     ) ?? fail("This passage changed. Select it again.");
+  const result = replaceProjectedText(normalized, block, edit, provenance);
+  return result === normalized ? project : result;
+}
+
+/** Reuse the validated projection when an editor transaction already has it. */
+function replaceProjectedText(
+  normalized: Project,
+  block: ProjectedBlock,
+  edit: TextEdit,
+  provenance: EditProvenance = { author: "manual" },
+): Project {
   if (
     !Number.isInteger(edit.from) ||
     !Number.isInteger(edit.to) ||
@@ -50,7 +62,7 @@ export function replaceTranscriptText(
   )
     fail("Invalid text selection.");
   const text = block.text.slice(0, edit.from) + edit.text + block.text.slice(edit.to);
-  if (text === block.text) return project;
+  if (text === block.text) return normalized;
   if (!text.trim())
     fail("A spoken paragraph must retain text. Use Cut speech to remove its audio.");
   // Include separator ranges in their following run. Empty runs retain their anchors.
@@ -291,9 +303,15 @@ export function editBlockText(
   blockId: string,
   text: string,
 ): Project {
+  const normalized = normalizeProjectTranscripts(project);
   const block =
-    projectTranscript(project).find((b) => b.segmentId === segmentId && b.id === blockId) ??
+    projectTranscript(normalized).find((b) => b.segmentId === segmentId && b.id === blockId) ??
     fail("This passage changed.");
+  if (text === block.text) return project;
+  return editProjectedBlock(normalized, block, text);
+}
+
+function editProjectedBlock(project: Project, block: ProjectedBlock, text: string): Project {
   if (text === block.text) return project;
   let from = 0;
   while (from < text.length && from < block.text.length && text[from] === block.text[from]) from++;
@@ -303,9 +321,9 @@ export function editBlockText(
     end--;
     nextEnd--;
   }
-  return replaceTranscriptText(project, {
-    segmentId,
-    blockId,
+  return replaceProjectedText(project, block, {
+    segmentId: block.segmentId,
+    blockId: block.id,
     from,
     to: end,
     text: text.slice(from, nextEnd),
@@ -442,9 +460,28 @@ export interface EditorParagraph {
 /** Converts a structural editor transaction to validated model changes. */
 export function applyTranscriptDocument(project: Project, paragraphs: EditorParagraph[]): Project {
   let p = project;
-  const before = projectTranscript(project);
+  const normalized = normalizeProjectTranscripts(project);
+  const before = projectTranscript(normalized);
   if (!paragraphs.length)
     fail("A spoken paragraph must retain text. Use Cut speech to remove audio.");
+  // Ordinary typing changes one paragraph without touching the document structure.
+  // Its replacement already validates the result; do not project the whole result again.
+  if (
+    paragraphs.length === before.length &&
+    paragraphs.every(
+      (paragraph, i) =>
+        paragraph.segmentId === before[i]!.segmentId && paragraph.blockId === before[i]!.id,
+    )
+  ) {
+    const changed = paragraphs.flatMap((paragraph, i) =>
+      paragraph.text === before[i]!.text ? [] : [i],
+    );
+    if (!changed.length) return project;
+    if (changed.length === 1) {
+      const index = changed[0]!;
+      return editProjectedBlock(normalized, before[index]!, paragraphs[index]!.text);
+    }
+  }
   const positions = new Map(before.map((b, index) => [`${b.segmentId}:${b.id}`, index]));
   const retained = new Set(paragraphs.map((b) => `${b.segmentId}:${b.blockId}`));
   // Joining adjacent paragraphs is allowed only within one continuous segment.

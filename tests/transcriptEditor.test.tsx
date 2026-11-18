@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/core";
 import { TranscriptEditor } from "@/components/TranscriptEditor/TranscriptEditor";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -272,4 +273,25 @@ it("ordinary editor deleteSelection removes text rather than source audio", () =
   act(() => e.commands.deleteSelection());
   expect(text()).toBe("potency are not the serveur.");
   expect(totalDuration(useProjectStore.getState().project)).toBe(6);
+});
+
+it("reuses decorations for caret movement and refreshes them after text and playback changes", () => {
+  render(<Harness />);
+  const e = editor();
+  const create = vi.spyOn(DecorationSet, "create");
+  try {
+    act(() => e.commands.setTextSelection(2));
+    act(() => e.commands.setTextSelection(3));
+    expect(create).not.toHaveBeenCalled();
+    act(() => e.view.dispatch(e.state.tr.insertText("X")));
+    expect(create).toHaveBeenCalled();
+    const box = screen.getByRole("textbox");
+    expect(box.querySelector("[data-run-id]")!.textContent).toBe("idXempotency");
+    create.mockClear();
+    act(() => usePlayerStore.getState().setCurrentTime(3.2));
+    expect(create).toHaveBeenCalled();
+    expect(box.querySelector(".is-playing")!.textContent).toBe("item");
+  } finally {
+    create.mockRestore();
+  }
 });
