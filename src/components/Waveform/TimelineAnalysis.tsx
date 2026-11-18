@@ -302,7 +302,11 @@ export function useTimelineAnalysis() {
             role="dialog"
             aria-label="Unattributed audio actions"
             className="timeline-gap-actions"
-            style={{ left: selection.left, bottom: selection.bottom }}
+            style={{
+              left: selection.left,
+              bottom: selection.bottom,
+              maxHeight: `calc(100vh - ${selection.bottom + 8}px)`,
+            }}
           >
             <div className="flex items-center justify-between gap-3">
               <strong className="text-sm">Audio without words</strong>
