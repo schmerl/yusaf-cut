@@ -155,13 +155,14 @@ it("extends into an adjacent wordless segment only when its source audio is cont
   const split = {
     ...project,
     segments: [
-      { id: "loose", mediaId: "m1", sourceIn: 0, sourceOut: 2, words: [] },
+      { id: "loose", mediaId: "m1", sourceIn: 0, sourceOut: 2, words: [], precise: true },
       { ...project.segments[0]!, sourceIn: 2 },
     ],
   };
   const finding = findUnattributedSpeech(split, peaks)[0]!;
   expect(finding.nextSegmentId).toBe(project.segments[0]!.id);
   const next = extendSentenceStart(split, finding);
+  expect(next.segments[0]!.precise).toBe(true);
   expect(totalDuration(next)).toBe(totalDuration(split));
   expect(projectTranscript(next)[0]!.text).toBe("Known sentence.");
   expect(projectTranscript(next)[0]!.runs[0]!.sourceStart).toBe(0.46);
@@ -216,12 +217,13 @@ it("extends the previous sentence into a contiguous wordless segment and rejects
     ...project,
     segments: [
       { ...project.segments[0]!, sourceOut: 4 },
-      { id: "loose", mediaId: "m1", sourceIn: 4, sourceOut: 6, words: [] },
+      { id: "loose", mediaId: "m1", sourceIn: 4, sourceOut: 6, words: [], precise: true },
     ],
   };
   const finding = findUnattributedSpeech(split, peaks)[1]!;
   expect(finding.previousSegmentId).toBe(project.segments[0]!.id);
   const next = extendSentenceEnd(split, finding);
+  expect(next.segments[0]!.precise).toBe(true);
   expect(totalDuration(next)).toBe(totalDuration(split));
   expect(projectTranscript(next)[0]!.runs[0]!.sourceEnd).toBe(5.54);
   expect(projectTranscript(next)[0]!.text).toBe("Known sentence.");

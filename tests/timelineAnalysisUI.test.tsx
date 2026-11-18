@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { loadPeaks } from "@/lib/audioPeaks";
 import { Waveform } from "@/components/Waveform/Waveform";
 import { listModels, transcribeTimelineAudio, cancelScriptAnalysis } from "@/lib/ipc";
 import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
@@ -203,4 +204,44 @@ it("dismisses a gap without changing the project", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.getAllByRole("button", { name: /Audio without words at/ })).toHaveLength(1);
   expect(useProjectStore.getState().project).toBe(expected);
+});
+
+it.each(["Escape", "Close"])("restores focus to the gap after %s", async (action) => {
+  const gap = await selectGap();
+  expect(screen.getByRole("dialog")).toHaveFocus();
+  if (action === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+  else fireEvent.click(screen.getByRole("button", { name: "Close gap actions" }));
+  expect(gap).toHaveFocus();
+});
+it.each(["Dismiss", "Extend next sentence", "Add to transcript"])(
+  "returns focus to analysis when %s removes the gap",
+  async (action) => {
+    await selectGap();
+    if (action === "Add to transcript") await transcribe();
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(screen.getByRole("button", { name: /Analyze timeline/ })).toHaveFocus();
+  },
+);
+it("skips extraction for video-only clips in waveform rendering and analysis", async () => {
+  const project = structuredClone(useProjectStore.getState().project);
+  project.media.video = {
+    ...project.media.m1!,
+    id: "video",
+    path: "/silent.mp4",
+    audioSampleRate: 0,
+  };
+  project.segments.push({ id: "video", mediaId: "video", sourceIn: 0, sourceOut: 6, words: [] });
+  replaceProjectBaseline(project);
+  const gaps = await analyze();
+  expect(gaps).toHaveLength(2);
+  expect(vi.mocked(loadPeaks).mock.calls.every((call) => call[1] !== "/silent.mp4")).toBe(true);
+  expect(screen.queryByText("Waveform unavailable for some media")).toBeNull();
+});
+it("reports extraction errors for sources with audio", async () => {
+  vi.mocked(loadPeaks).mockRejectedValueOnce(new Error("Audio decode failed"));
+  render(<Waveform />);
+  await screen.findByText("Waveform unavailable for some media");
+  vi.mocked(loadPeaks).mockRejectedValueOnce(new Error("Audio decode failed"));
+  fireEvent.click(screen.getByRole("button", { name: "Analyze timeline" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Audio decode failed");
 });

@@ -24,6 +24,7 @@ interface Report {
   project: Project;
   session: number;
   peaks: Record<string, number[]>;
+  findings: UnattributedSpeech[];
 }
 interface Preview {
   finding: UnattributedSpeech;
@@ -39,6 +40,8 @@ export function useTimelineAnalysis() {
   );
   const [transcribing, setTranscribing] = useState(false);
   const popover = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLElement | null>(null);
+  const analyzeButton = useRef<HTMLButtonElement>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState("");
@@ -50,16 +53,15 @@ export function useTimelineAnalysis() {
   const request = useRef<{ id: string; cancelled: boolean; native: boolean } | null>(null);
   const stale = !!report && (project !== report.project || projectSession() !== report.session);
   const findings = useMemo(
-    () =>
-      report && !stale
-        ? findUnattributedSpeech(report.project, report.peaks).filter((f) => !dismissed.has(f.id))
-        : [],
+    () => (report && !stale ? report.findings.filter((f) => !dismissed.has(f.id)) : []),
     [report, stale, dismissed],
   );
   const selected = findings.find((finding) => finding.id === selection?.id);
   const selectedId = selected?.id;
   useEffect(() => {
     if (!selectedId) return;
+    const returnTo = trigger.current;
+    const fallback = analyzeButton.current;
     popover.current?.focus({ preventScroll: true });
     const outside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
@@ -77,6 +79,8 @@ export function useTimelineAnalysis() {
     return () => {
       document.removeEventListener("mousedown", outside);
       document.removeEventListener("keydown", escape);
+      const target = returnTo?.isConnected ? returnTo : fallback;
+      target?.focus({ preventScroll: true });
     };
     // Selection changes close any existing request through selectFinding.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,21 +140,25 @@ export function useTimelineAnalysis() {
       session = projectSession();
     const run = begin("Analyzing audio…");
     try {
-      const sources = Object.values(expected.media).filter((media) =>
-        expected.segments.some((s) => s.mediaId === media.id),
-      );
+      const usedMedia = new Set(expected.segments.map((segment) => segment.mediaId));
+      const sources = Object.values(expected.media).filter((media) => usedMedia.has(media.id));
       const entries = await Promise.all(
         sources.map(
           async (media) =>
-            [media.id, await loadPeaks(`${media.path}:${media.sha256}`, media.path)] as const,
+            [
+              media.id,
+              media.audioSampleRate === 0
+                ? []
+                : await loadPeaks(`${media.path}:${media.sha256}`, media.path),
+            ] as const,
         ),
       );
       if (run.cancelled) return;
       if (useProjectStore.getState().project !== expected || projectSession() !== session)
         throw new Error("The project changed during analysis. Analyze the timeline again.");
       const peaks = Object.fromEntries(entries);
-      findUnattributedSpeech(expected, peaks); // Validate before publishing a report.
-      setReport({ project: expected, session, peaks });
+      const findings = findUnattributedSpeech(expected, peaks);
+      setReport({ project: expected, session, peaks, findings });
       setDismissed(new Set());
     } catch (caught) {
       if (!run.cancelled) setError(message(caught));
@@ -228,7 +236,11 @@ export function useTimelineAnalysis() {
     try {
       const result = next();
       useProjectStore.getState().commitTranscript(result, report.project);
-      setReport({ ...report, project: useProjectStore.getState().project });
+      setReport({
+        ...report,
+        project: useProjectStore.getState().project,
+        findings: findUnattributedSpeech(useProjectStore.getState().project, report.peaks),
+      });
       setPreview(null);
       setSelection(null);
       setTranscribing(false);
@@ -248,6 +260,7 @@ export function useTimelineAnalysis() {
   }
   function selectFinding(finding: UnattributedSpeech, element: HTMLElement) {
     cancel();
+    trigger.current = element;
     const rect = element.getBoundingClientRect();
     setSelection({
       id: finding.id,
@@ -262,6 +275,7 @@ export function useTimelineAnalysis() {
   const controls = (
     <>
       <Button
+        ref={analyzeButton}
         size="sm"
         variant="outline"
         disabled={!!busy}

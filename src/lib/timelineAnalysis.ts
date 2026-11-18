@@ -35,15 +35,22 @@ export function findUnattributedSpeech(
   peaks: Record<string, number[]>,
 ): UnattributedSpeech[] {
   const blocks = projectTranscript(project);
+  const segmentsById = new Map(project.segments.map((segment) => [segment.id, segment]));
+  const blocksBySegment = new Map<string, typeof blocks>();
+  for (const block of blocks) {
+    const group = blocksBySegment.get(block.segmentId);
+    if (group) group.push(block);
+    else blocksBySegment.set(block.segmentId, [block]);
+  }
   const findings: UnattributedSpeech[] = [];
   const timeline = computeTimeline(project);
   for (const [entryIndex, entry] of timeline.entries()) {
-    const segment = project.segments.find((s) => s.id === entry.segmentId)!;
+    const segment = segmentsById.get(entry.segmentId)!;
     if (segment.fillerAudio) continue;
     const samples = peaks[entry.mediaId];
     if (!samples)
       throw new Error("Audio analysis is incomplete. Retry after relinking unavailable media.");
-    const segmentBlocks = blocks.filter((b) => b.segmentId === segment.id);
+    const segmentBlocks = blocksBySegment.get(segment.id) ?? [];
     const covered = [
       ...segment.words.map((word) => ({ start: word.start, end: word.end })),
       ...segmentBlocks.flatMap((b) =>
@@ -74,7 +81,7 @@ export function findUnattributedSpeech(
           gap.end === entry.sourceOut &&
           nextEntry?.mediaId === entry.mediaId &&
           nextEntry.sourceIn === entry.sourceOut
-            ? blocks.find((b) => b.segmentId === nextEntry.segmentId && b.text.trim())
+            ? blocksBySegment.get(nextEntry.segmentId)?.find((b) => b.text.trim())
             : undefined;
         const next =
           segmentBlocks.find((b) => {
@@ -87,7 +94,10 @@ export function findUnattributedSpeech(
           gap.start === entry.sourceIn &&
           previousEntry?.mediaId === entry.mediaId &&
           previousEntry.sourceOut === entry.sourceIn
-            ? blocks.filter((b) => b.segmentId === previousEntry.segmentId && b.text.trim()).at(-1)
+            ? blocksBySegment
+                .get(previousEntry.segmentId)
+                ?.filter((b) => b.text.trim())
+                .at(-1)
             : undefined;
         const previous =
           segmentBlocks.find((b) => {
@@ -289,7 +299,13 @@ export function extendSentenceStart(project: Project, finding: UnattributedSpeec
         s.id === segment.id
           ? []
           : s.id === target.id
-            ? [{ ...target, sourceIn: segment.sourceIn, precise: segment.precise || target.precise }]
+            ? [
+                {
+                  ...target,
+                  sourceIn: segment.sourceIn,
+                  precise: segment.precise || target.precise,
+                },
+              ]
             : [s],
       ),
     };
@@ -370,7 +386,13 @@ export function extendSentenceEnd(project: Project, finding: UnattributedSpeech)
         s.id === segment.id
           ? []
           : s.id === target.id
-            ? [{ ...target, sourceOut: segment.sourceOut }]
+            ? [
+                {
+                  ...target,
+                  sourceOut: segment.sourceOut,
+                  precise: target.precise || segment.precise,
+                },
+              ]
             : [s],
       ),
     };

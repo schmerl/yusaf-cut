@@ -45,23 +45,20 @@ export function AudioWaveform({
 }) {
   const [peaks, setPeaks] = useState<Record<string, number[]>>({});
   const [status, setStatus] = useState("Loading waveform…");
-  const sources = useMemo(
-    () =>
-      Object.values(project.media).filter((media) =>
-        project.segments.some((segment) => segment.mediaId === media.id),
-      ),
-    [project.media, project.segments],
-  );
+  const sources = useMemo(() => {
+    const usedMedia = new Set(project.segments.map((segment) => segment.mediaId));
+    return Object.values(project.media).filter((media) => usedMedia.has(media.id));
+  }, [project.media, project.segments]);
   // A cut changes the projection, but does not require re-extracting source audio.
-  const sourceKey = JSON.stringify(sources.map((s) => [s.id, s.path, s.sha256]));
+  const sourceKey = JSON.stringify(sources.map((s) => [s.id, s.path, s.sha256, s.audioSampleRate]));
   useEffect(() => {
     let cancelled = false;
     setPeaks({});
     setStatus("Loading waveform…");
-    const media = JSON.parse(sourceKey) as [string, string, string][];
+    const media = JSON.parse(sourceKey) as [string, string, string, number][];
     void Promise.allSettled(
-      media.map(async ([id, path, sha]) => {
-        const values = await loadPeaks(`${path}:${sha}`, path);
+      media.map(async ([id, path, sha, sampleRate]) => {
+        const values = sampleRate === 0 ? [] : await loadPeaks(`${path}:${sha}`, path);
         if (!cancelled) setPeaks((previous) => ({ ...previous, [id]: values }));
       }),
     ).then((results) => {
