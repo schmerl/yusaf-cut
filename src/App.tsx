@@ -276,7 +276,7 @@ export default function App() {
 
       {/* Full-width waveform — only when media is loaded */}
       {hasMedia && (
-        <div className="h-[170px] shrink-0 border-t border-border bg-background">
+        <div className="h-[220px] shrink-0 border-t border-border bg-background">
           <Waveform />
         </div>
       )}

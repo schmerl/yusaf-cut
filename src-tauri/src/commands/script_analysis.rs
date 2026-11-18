@@ -37,6 +37,7 @@ pub struct WindowEvidence {
     pub source_in: f64,
     pub source_out: f64,
     pub text: String,
+    pub words: Vec<crate::edl::Word>,
 }
 #[derive(Serialize)]
 pub struct AnalysisEvidence {
@@ -167,6 +168,51 @@ pub async fn analyze_script_audio(
     request_id: String,
     model: super::transcribe::WhisperModel,
 ) -> Result<AnalysisEvidence, String> {
+    analyze_windows(
+        app,
+        state,
+        project,
+        windows,
+        request_id,
+        model,
+        JobKind::ScriptReconcile,
+        "Analyzing presentation script",
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn transcribe_timeline_audio(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: Project,
+    windows: Vec<AudioWindow>,
+    request_id: String,
+    model: super::transcribe::WhisperModel,
+) -> Result<AnalysisEvidence, String> {
+    analyze_windows(
+        app,
+        state,
+        project,
+        windows,
+        request_id,
+        model,
+        JobKind::Transcribe,
+        "Transcribing unattributed timeline speech",
+    )
+    .await
+}
+
+async fn analyze_windows(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: Project,
+    windows: Vec<AudioWindow>,
+    request_id: String,
+    model: super::transcribe::WhisperModel,
+    kind: JobKind,
+    label: &str,
+) -> Result<AnalysisEvidence, String> {
     uuid::Uuid::parse_str(&request_id).map_err(|_| "Invalid analysis request ID.")?;
     let paths = validate_windows(&project, &windows)?;
     let model_path = app
@@ -194,15 +240,8 @@ pub async fn analyze_script_audio(
         entry.0 = true;
         entry.1.clone()
     };
-    let job = state
-        .jobs
-        .create(
-            &app,
-            JobKind::ScriptReconcile,
-            "Analyzing presentation script",
-        )
-        .await;
-    let _serial = state.jobs.serialise(JobKind::ScriptReconcile).await;
+    let job = state.jobs.create(&app, kind, label).await;
+    let _serial = state.jobs.serialise(kind).await;
     job.mark_running().await;
     let result = async {
         let model_stamp = file_stamp(&model_path)?;
@@ -296,6 +335,7 @@ pub async fn analyze_script_audio(
                     .map(|w| w.text.as_str())
                     .collect::<Vec<_>>()
                     .join(" "),
+                words: source_window_words(words, window),
             });
             job.set_progress((index + 1) as f64 / windows.len() as f64, None)
                 .await;
@@ -386,5 +426,51 @@ mod tests {
             }]
         )
         .is_err());
+    }
+}
+
+/// Recognition timestamps are relative to the extracted WAV, never to the full source.
+fn source_window_words(
+    words: Vec<crate::edl::Word>,
+    window: &AudioWindow,
+) -> Vec<crate::edl::Word> {
+    words
+        .into_iter()
+        .filter_map(|mut word| {
+            word.start = (word.start + window.source_in).max(window.source_in);
+            word.end = (word.end + window.source_in).min(window.source_out);
+            (word.start.is_finite() && word.end.is_finite() && word.end > word.start)
+                .then_some(word)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod timeline_tests {
+    use super::*;
+    #[test]
+    fn recognition_timing_is_shifted_and_clipped_to_the_requested_source_window() {
+        let words = vec![(0.1, 0.6), (1.8, 2.5), (4.0, 5.0)]
+            .into_iter()
+            .map(|(start, end)| crate::edl::Word {
+                id: uuid::Uuid::new_v4().to_string(),
+                text: "word".into(),
+                start,
+                end,
+                confidence: 0.9,
+                speaker: None,
+            })
+            .collect();
+        let result = source_window_words(
+            words,
+            &AudioWindow {
+                segment_id: "segment".into(),
+                source_in: 25.0,
+                source_out: 27.0,
+            },
+        );
+        assert_eq!(result.len(), 2);
+        assert_eq!((result[0].start, result[0].end), (25.1, 25.6));
+        assert_eq!((result[1].start, result[1].end), (26.8, 27.0));
     }
 }

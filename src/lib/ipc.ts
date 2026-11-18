@@ -395,3 +395,18 @@ export function estimateFillerBoundaries(
 ): Promise<FillerBoundaryEstimate> {
   return invoke("estimate_filler_boundaries", { project, segmentId, anchorIds });
 }
+
+/** Source audio peaks at 50 buckets per second (linear amplitude). */
+export function audioPeaks(path: string): Promise<number[]> {
+  return invoke<number[]>("audio_peaks", { path });
+}
+
+/** Bounded recognition that leaves existing transcript text and source caches untouched. */
+export function transcribeTimelineAudio(
+  project: Project,
+  windows: ScriptAudioWindow[],
+  requestId: string,
+  model: WhisperModel,
+): Promise<{ windows: (ScriptAudioWindow & { text: string; words: Word[] })[] }> {
+  return invoke("transcribe_timeline_audio", { project, windows, requestId, model });
+}

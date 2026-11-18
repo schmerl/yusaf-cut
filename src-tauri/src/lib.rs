@@ -43,10 +43,12 @@ pub fn run() {
         .manage(commands::audition::AuditionState::default())
         .invoke_handler(tauri::generate_handler![
             commands::media::import_media,
+            commands::media::audio_peaks,
             commands::media::start_native_recording,
             commands::media::stop_native_recording,
             commands::transcribe::transcribe,
             commands::script_analysis::analyze_script_audio,
+            commands::script_analysis::transcribe_timeline_audio,
             commands::script_analysis::cancel_script_analysis,
             commands::transcribe::record_transcription_application,
             commands::transcribe::list_models,

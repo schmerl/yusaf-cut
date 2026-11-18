@@ -9,6 +9,9 @@
 
 import { create } from "zustand";
 
+/** Allows word-level inspection even in multi-hour recordings. */
+export const MAX_TIMELINE_ZOOM = 4096;
+
 interface PlayerState {
   /** Current output-time position in seconds. */
   currentTime: number;
@@ -55,9 +58,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setRate: (r) => set({ rate: r }),
   setTimelineRange: (markIn, markOut) => set({ timelineMarkIn: markIn, timelineMarkOut: markOut }),
   clearTimelineRange: () => set({ timelineMarkIn: null, timelineMarkOut: null }),
-  // Wider zoom range supports the horizontal-scrolling rail introduced in v2.1.
-  // 32x lets editors land on individual words on long-form content.
-  setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(32, zoom)) }),
+  setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(MAX_TIMELINE_ZOOM, zoom)) }),
   reset: () =>
     set({
       currentTime: 0,

@@ -10,6 +10,8 @@ import { normalizeProjectTranscripts } from "@/lib/transcript";
 import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUIStore } from "@/stores/uiStore";
+vi.mock("@/lib/ipc", () => ({ audioPeaks: vi.fn().mockResolvedValue(Array(300).fill(0.5)) }));
+
 import fixture from "./fixtures/transcript-corrections.json";
 
 function Harness() {
@@ -35,7 +37,8 @@ beforeEach(() => {
   usePlayerStore.getState().reset();
   useUIStore.setState({ toasts: [], isProcessingEdit: false });
 });
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {});
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -175,3 +178,43 @@ it.each(["in", "out"])(
     }
   },
 );
+
+it("reveals the corrected transcript run when clicking a timeline word", () => {
+  const scroll = vi.fn();
+  HTMLElement.prototype.scrollIntoView = scroll;
+  render(<Harness />);
+  const button = screen.getByRole("button", { name: "Reveal in transcript: idempotency" });
+  fireEvent.mouseDown(button, { clientX: 20, button: 0 });
+  fireEvent.mouseUp(button, { clientX: 20, button: 0 });
+  const editor = (screen.getByRole("textbox") as HTMLElement & { editor: Editor }).editor;
+  expect(editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to)).toBe(
+    "idempotency",
+  );
+  expect(scroll).toHaveBeenCalledWith({ block: "center" });
+  expect(usePlayerStore.getState().timelineMarkIn).toBeNull();
+  expect(usePlayerStore.getState().selectedWordIds).toEqual(new Set(["w0", "w1"]));
+  delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+});
+it("collapses words to sentence blocks at overview scale and reveals words on zoom", () => {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+  render(<Harness />);
+  expect(screen.getByLabelText("Sentences")).toBeInTheDocument();
+  act(() => usePlayerStore.getState().setTimelineZoom(4));
+  expect(screen.getByLabelText("Words")).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Reveal in transcript: idempotency" }),
+  ).toBeInTheDocument();
+});
+it("keeps word dragging as an audio range selection without revealing transcript text", () => {
+  render(<Harness />);
+  const reveal = vi.fn();
+  window.addEventListener("yusafcut:reveal-review", reveal);
+  const word = screen.getByRole("button", { name: "Reveal in transcript: idempotency" });
+  fireEvent.mouseDown(word, { clientX: 10, button: 0 });
+  fireEvent.mouseMove(word, { clientX: 100 });
+  fireEvent.mouseUp(word, { clientX: 100, button: 0 });
+  expect(usePlayerStore.getState().timelineMarkIn).toBeCloseTo(0.1);
+  expect(usePlayerStore.getState().timelineMarkOut).toBe(1);
+  expect(reveal).not.toHaveBeenCalled();
+  window.removeEventListener("yusafcut:reveal-review", reveal);
+});

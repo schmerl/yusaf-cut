@@ -36,6 +36,57 @@ async function fixture(text: string, script: string, repeated = false): Promise<
   return replaceStoredScript(p, await prepareScript(script, "synthetic.md"));
 }
 describe("pure script matching and scope", () => {
+  it.each(["client-server", "client/server", "client/server/cache", "client–server"])(
+    "offers %s as one replacement and preserves timing when applied",
+    async (compound) => {
+      const spoken = compound.replace(/[-/–]/gu, " ");
+      const p = await fixture(`We use ${spoken} here.`, `We use ${compound} here.`);
+      const candidates = scriptCandidates(p);
+      expect(candidates).toEqual([
+        expect.objectContaining({ beforeText: spoken, afterText: compound, actionable: true }),
+      ]);
+      const candidate = candidates[0]!;
+      expect(candidate.anchorIds).toHaveLength(spoken.split(" ").length);
+      const updated = replaceTranscriptText(
+        p,
+        { ...candidate, text: candidate.afterText },
+        { author: "script" },
+      );
+      expect(projectTranscript(updated)[0]!.text).toBe(`We use ${compound} here.`);
+      expect(updated.segments[0]!.words).toEqual(p.segments[0]!.words);
+      expect(scriptCandidates(updated)).toEqual([]);
+    },
+  );
+  it("keeps a partially formatted compound together", async () => {
+    const p = await fixture("We use client- server here.", "We use client-server here.");
+    expect(scriptCandidates(p)).toEqual([
+      expect.objectContaining({ beforeText: "client- server", afterText: "client-server" }),
+    ]);
+  });
+  it("retains selection and manual-edit protection for joined suggestions", async () => {
+    const p = normalizeProjectTranscripts(
+      await fixture("We use client server here.", "We use client/server here."),
+    );
+    const b = projectTranscript(p)[0]!;
+    const client = b.runs.find((r) => r.text === "client")!;
+    const partial = scriptCandidates(p, [
+      { segmentId: b.segmentId, blockId: b.id, from: client.from, to: client.to },
+    ]);
+    expect(partial).toEqual([
+      expect.objectContaining({ afterText: "client/server", actionable: false }),
+    ]);
+    p.segments[0]!.transcript!.blocks[0]!.runs[3]!.provenance = { author: "manual" };
+    expect(scriptCandidates(p)).toEqual([
+      expect.objectContaining({ afterText: "client/server", protected: true }),
+    ]);
+  });
+  it("keeps punctuation separated by whitespace as individual suggestions", async () => {
+    const p = await fixture("We use client server here", "We use client, server here.");
+    expect(scriptCandidates(p).map((c) => [c.beforeText, c.afterText])).toEqual([
+      ["client", "client,"],
+      ["here", "here."],
+    ]);
+  });
   it.each(["’", "‘", "ʼ", "＇"])(
     "ignores %s versus straight apostrophes in either direction",
     async (apostrophe) => {
