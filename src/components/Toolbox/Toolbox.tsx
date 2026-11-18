@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { projectChapters, wordIdsInOutputRange } from "@/lib/edl";
-import { usePlayerStore } from "@/stores/playerStore";
+import { MAX_TIMELINE_ZOOM, usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import {
@@ -346,7 +346,7 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
         className="tool-button"
         title="Zoom in timeline"
         onClick={() => setTimelineZoom(timelineZoom * 1.5)}
-        disabled={timelineZoom >= 31.99}
+        disabled={timelineZoom >= MAX_TIMELINE_ZOOM}
       >
         <ZoomIn className="h-4 w-4" />
       </Button>

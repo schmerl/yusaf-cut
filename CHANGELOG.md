@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   export investigation in `docs/export-caption-bugs.md`; not fixed yet.
 
 ### Development
+- Offer punctuation-connected script words such as `client-server` and
+  `client/server` as one suggestion, preserving the exact separator without
+  extra spaces when accepted. Refresh pending suggestions on reconciliation.
 - Preserve untouched script suggestions when a filler/off-script cut splits their
   paragraph. Rebase context only for exact surviving anchors/text/timing in the
   same occurrence; removed targets remain invalidated. Apply the same protection

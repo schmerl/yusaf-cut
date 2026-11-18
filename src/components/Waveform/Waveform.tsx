@@ -13,7 +13,7 @@
  *  - Bars are positioned in absolute px relative to the full-width rail using a
  *    single `pxPerSecond` scale. Pixel layout never moves while the user scrolls
  *    — only the scrollLeft changes — so the playhead stays sub-pixel accurate
- *    even at 32x zoom.
+ *    at high zoom.
  *  - Wheel-to-pan (horizontal): regular wheel scroll just scrolls the rail.
  *  - Wheel-to-zoom (Cmd/Ctrl + wheel): zooms in/out, recentring on the cursor.
  */
@@ -25,20 +25,17 @@ import {
   projectChapters,
   totalDuration,
   wordIdsInOutputRange,
-  type Word,
 } from "@/lib/edl";
 import { useProjectStore } from "@/stores/projectStore";
-import { usePlayerStore } from "@/stores/playerStore";
+import { MAX_TIMELINE_ZOOM, usePlayerStore } from "@/stores/playerStore";
 import { fillerCandidates } from "@/lib/fillerReview";
 import { formatTimecode } from "@/lib/timecode";
 import { Button } from "@/components/ui/button";
 import { cutTimelineSelection } from "@/lib/appCommands";
 
-function amplitude(word: Word, index: number): number {
-  let hash = index + 17;
-  for (let i = 0; i < word.text.length; i++) hash = (hash * 31 + word.text.charCodeAt(i)) | 0;
-  return 22 + (Math.abs(hash) % 44);
-}
+import { projectTranscript } from "@/lib/transcript";
+import { AudioWaveform } from "./AudioWaveform";
+import { useTimelineAnalysis } from "./TimelineAnalysis";
 
 /** Px overdraw outside the visible window so virtualised bars enter/exit smoothly. */
 const VIRTUAL_OVERDRAW_PX = 200;
@@ -62,6 +59,7 @@ export function Waveform() {
   const setSelectedWordIds = usePlayerStore((s) => s.setSelectedWordIds);
   const setTimelineRange = usePlayerStore((s) => s.setTimelineRange);
   const setTimelineZoom = usePlayerStore((s) => s.setTimelineZoom);
+  const analysis = useTimelineAnalysis();
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -143,7 +141,7 @@ export function Waveform() {
         // Zoom factor — slower than the default to feel like a trackpad pinch.
         const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
         const beforeZoom = usePlayerStore.getState().timelineZoom;
-        const newZoom = Math.max(1, Math.min(32, beforeZoom * factor));
+        const newZoom = Math.max(1, Math.min(MAX_TIMELINE_ZOOM, beforeZoom * factor));
         if (Math.abs(newZoom - beforeZoom) < 1e-3) return;
 
         // Recentre so the time under the cursor stays put.
@@ -179,43 +177,33 @@ export function Waveform() {
 
   const { bars, ticks } = useMemo(() => {
     if (pxPerSecond <= 0) return { bars: [] as BarSpec[], ticks: [] as TickSpec[] };
-    const timeline = computeTimeline(project);
     const fillers = fillerCandidates(project);
-    let wordIndex = 0;
     const nextBars: BarSpec[] = [];
-    for (const entry of timeline) {
-      const segment = project.segments.find((s) => s.id === entry.segmentId);
-      if (!segment) continue;
-      // Quick prune: if the whole segment is outside the window, skip it.
-      if (entry.outputEnd < visibleStartSec || entry.outputStart > visibleEndSec) {
-        wordIndex += segment.words.length;
-        continue;
-      }
-      if (segment.fillerAudio)
-        nextBars.push({
-          id: segment.id,
-          leftPx: entry.outputStart * pxPerSecond,
-          widthPx: Math.max(2, (entry.outputEnd - entry.outputStart) * pxPerSecond),
-          height: 18,
-          filler: true,
-          selected: false,
-          label: `${segment.fillerAudio.text}: retained audio edge`,
-        });
-      for (const word of segment.words) {
-        const outputStart = entry.outputStart + Math.max(0, word.start - entry.sourceIn);
-        const outputEnd = entry.outputStart + Math.max(0, word.end - entry.sourceIn);
-        const idx = wordIndex++;
+    for (const block of projectTranscript(project)) {
+      const runs = block.runs.filter((run) => run.text.trim());
+      if (!runs.length) continue;
+      // Show readable word blocks when there is room; otherwise summarize sentences.
+      const detailed = pxPerSecond >= 75;
+      const groups = detailed ? runs.map((run) => [run]) : [runs];
+      for (const group of groups) {
+        const outputStart = group[0]!.outputStart;
+        const outputEnd = group.at(-1)!.outputEnd;
         if (outputEnd < visibleStartSec || outputStart > visibleEndSec) continue;
-        const leftPx = outputStart * pxPerSecond;
-        const widthPx = Math.max(2, (outputEnd - outputStart) * pxPerSecond);
+        const anchorIds = group.flatMap((run) => run.anchorIds);
         nextBars.push({
-          id: `${segment.id}:${word.id}`,
-          leftPx,
-          widthPx,
-          height: amplitude(word, idx),
-          filler: fillers.some((c) => c.segmentId === segment.id && c.anchorIds.includes(word.id)),
-          selected: selectedWordIds.has(word.id),
-          label: word.text,
+          id: `${block.segmentId}:${group[0]!.id}`,
+          segmentId: block.segmentId,
+          anchorIds,
+          outputStart,
+          leftPx: outputStart * pxPerSecond,
+          widthPx: Math.max(2, (outputEnd - outputStart) * pxPerSecond),
+          filler: fillers.some(
+            (c) =>
+              c.segmentId === block.segmentId && c.anchorIds.some((id) => anchorIds.includes(id)),
+          ),
+          selected: anchorIds.some((id) => selectedWordIds.has(id)),
+          label: group.map((run) => run.text).join(" "),
+          detailed,
         });
       }
     }
@@ -315,6 +303,17 @@ export function Waveform() {
     );
   }
 
+  function revealBar(bar: BarSpec) {
+    setTimelineRange(null, null);
+    setSelectedWordIds(new Set(bar.anchorIds));
+    seekToOutputTime(bar.outputStart);
+    window.dispatchEvent(
+      new CustomEvent("yusafcut:reveal-review", {
+        detail: { segmentId: bar.segmentId, anchorIds: bar.anchorIds },
+      }),
+    );
+  }
+
   function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -336,8 +335,17 @@ export function Waveform() {
   function handleMouseUp(e: React.MouseEvent<HTMLDivElement>) {
     const outputTime = outputTimeFromPointer(e);
     if (outputTime === null) return;
-    if (!dragging || dragStart === null) {
-      seekToOutputTime(outputTime);
+    if (dragStart === null) return;
+    if (!dragging) {
+      const block = (e.target as HTMLElement).closest<HTMLElement>("[data-timeline-block]");
+      const bar = bars.find((candidate) => candidate.id === block?.dataset.timelineBlock);
+      const gapElement = (e.target as HTMLElement).closest<HTMLElement>("[data-timeline-gap]");
+      const gap = analysis.findings.find(
+        (finding) => finding.id === gapElement?.dataset.timelineGap,
+      );
+      if (gap && gapElement) analysis.selectFinding(gap, gapElement);
+      else if (bar) revealBar(bar);
+      else seekToOutputTime(outputTime);
     } else {
       updateSelection(dragStart, outputTime);
     }
@@ -396,7 +404,9 @@ export function Waveform() {
 
   return (
     <div className="timeline-panel" role="region" aria-label="Timeline">
+      {analysis.actions}
       <div className="timeline-header">
+        {analysis.controls}
         <div className="timeline-title">
           Timeline
           <span>
@@ -473,8 +483,8 @@ export function Waveform() {
         </Button>
         <div className="timeline-help">
           {zoomed
-            ? `drag selects · I/O mark range · ⌘⇧X cuts · ⌘+scroll to zoom · zoom ${timelineZoom.toFixed(1)}x`
-            : `drag selects · I/O mark range · ⌘⇧X cuts · zoom ${timelineZoom.toFixed(1)}x`}
+            ? `click text reveals · drag selects · I/O mark range · ⌘⇧X cuts · ⌘+scroll to zoom · zoom ${timelineZoom.toFixed(1)}x`
+            : `click text reveals · drag selects · I/O mark range · ⌘⇧X cuts · zoom ${timelineZoom.toFixed(1)}x`}
         </div>
       </div>
 
@@ -483,7 +493,7 @@ export function Waveform() {
           ref={railRef}
           tabIndex={0}
           aria-label="Timeline selection"
-          title="Bars show transcript word timings. Blank areas can still contain sound and can be selected and cut."
+          title="Audio waveform above transcript blocks. Click text to reveal it in the transcript; drag to select audio."
           className="timeline-rail"
           style={{ width: railWidth || "100%" }}
           onMouseDown={handleMouseDown}
@@ -497,24 +507,61 @@ export function Waveform() {
               </span>
             ))}
           </div>
-          <div className="timeline-bars">
+          <AudioWaveform
+            project={project}
+            startPx={visibleStartPx}
+            endPx={Math.min(railWidth, visibleEndPx)}
+            pxPerSecond={pxPerSecond}
+          />
+          {analysis.findings.map((finding) => (
+            <button
+              key={finding.id}
+              type="button"
+              className="timeline-unattributed"
+              data-timeline-gap={finding.id}
+              style={{
+                left: finding.outputStart * pxPerSecond,
+                width: Math.max(4, (finding.outputEnd - finding.outputStart) * pxPerSecond),
+              }}
+              aria-label={`Audio without words at ${formatTimecode(finding.outputStart, { ms: true })}`}
+              title="Audio without words · click for actions"
+              onClick={(event) => {
+                if (event.detail === 0) analysis.selectFinding(finding, event.currentTarget);
+              }}
+            />
+          ))}
+          <div className="timeline-bars" aria-label={pxPerSecond >= 75 ? "Words" : "Sentences"}>
             {bars.map((bar) => (
-              <div
+              <button
+                type="button"
                 key={bar.id}
+                data-timeline-block={bar.id}
                 className={[
                   "timeline-bar",
+                  bar.detailed ? "is-word" : "is-sentence",
                   bar.filler ? "is-filler" : "",
                   bar.selected ? "is-selected" : "",
                 ].join(" ")}
-                style={{
-                  left: bar.leftPx,
-                  width: bar.widthPx,
-                  height: `${bar.height}px`,
+                style={{ left: bar.leftPx, width: Math.max(2, bar.widthPx - 1) }}
+                title={`${bar.label}${bar.filler ? " · contains filler" : ""} — reveal in transcript`}
+                aria-label={`Reveal in transcript: ${bar.label}`}
+                onClick={(event) => {
+                  // Mouse activation is handled on release so dragging still selects audio.
+                  if (event.detail === 0) revealBar(bar);
                 }}
-                title={bar.label}
-              />
+              >
+                {bar.label}
+              </button>
             ))}
           </div>
+          {computeCutBoundaries(project).map((time) => (
+            <div
+              key={time}
+              className="timeline-cut"
+              style={{ left: time * pxPerSecond }}
+              title={`Edit boundary · ${formatTimecode(time, { ms: true })}`}
+            />
+          ))}
           {hasTimelineRange && selectionWidthPx > 0.1 && (
             <div
               className="timeline-selection"
@@ -608,9 +655,25 @@ type BarSpec = {
   id: string;
   leftPx: number;
   widthPx: number;
-  height: number;
+  segmentId: string;
+  anchorIds: string[];
+  outputStart: number;
+  detailed: boolean;
   filler: boolean;
   selected: boolean;
   label: string;
 };
 type TickSpec = { leftPx: number; label: string };
+
+function computeCutBoundaries(project: Parameters<typeof computeTimeline>[0]): number[] {
+  const timeline = computeTimeline(project);
+  return timeline
+    .slice(1)
+    .filter((entry, index) => {
+      const previous = timeline[index]!;
+      return (
+        entry.mediaId !== previous.mediaId || Math.abs(entry.sourceIn - previous.sourceOut) > 0.001
+      );
+    })
+    .map((entry) => entry.outputStart);
+}

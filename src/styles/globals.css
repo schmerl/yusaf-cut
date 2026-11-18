@@ -778,27 +778,64 @@
   height: 76px;
   border-left: 1px solid hsl(var(--border) / 0.45);
 }
+.timeline-audio {
+  position: absolute;
+  top: 31px;
+  height: 50px;
+  color: hsl(var(--muted-foreground) / 0.85);
+  pointer-events: none;
+}
+.timeline-waveform-status {
+  position: absolute;
+  top: 16px;
+  left: 12px;
+  padding: 2px 6px;
+  background: hsl(30 5% 7% / 0.9);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .timeline-bars {
   position: absolute;
-  top: 35px;
-  bottom: 12px;
+  top: 86px;
+  height: 27px;
   left: 0;
   right: 0;
 }
 .timeline-bar {
   position: absolute;
-  bottom: 0;
+  top: 0;
+  height: 27px;
   min-width: 2px;
-  border-radius: 2px;
-  background: hsl(var(--muted-foreground) / 0.78);
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.05);
+  padding: 0 4px;
+  border: 1px solid hsl(var(--muted-foreground) / 0.24);
+  border-radius: 3px;
+  background: hsl(var(--muted-foreground) / 0.17);
+  color: hsl(var(--foreground));
+  font: 11px/25px ui-sans-serif, system-ui, sans-serif;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.timeline-bar:hover, .timeline-bar:focus-visible {
+  outline: 1px solid hsl(var(--foreground));
+  outline-offset: -1px;
+  filter: brightness(1.2);
+}
+.timeline-cut {
+  position: absolute;
+  top: 28px;
+  bottom: 4px;
+  border-left: 2px dashed hsl(var(--foreground) / 0.65);
+  pointer-events: none;
 }
 .timeline-bar.is-filler {
-  background: hsl(var(--filler));
-  box-shadow: 0 0 0 1px hsl(var(--filler) / 0.35);
+  background: hsl(var(--filler) / 0.25);
+  border-color: hsl(var(--filler));
 }
 .timeline-bar.is-selected {
-  background: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.4);
   box-shadow:
     0 0 0 1px hsl(var(--primary) / 0.55),
     0 0 12px hsl(var(--primary) / 0.18);
@@ -865,6 +902,7 @@
   color: hsl(30 5% 10%);
 }
 .timeline-playhead {
+  pointer-events: none;
   position: absolute;
   top: 28px;
   bottom: 0;
@@ -982,3 +1020,40 @@ select, option { color-scheme: dark; background-color: hsl(var(--background)); c
 
 .transcript-editor .is-passage-selected { background: hsl(var(--primary) / .25); box-shadow: inset 0 -1px hsl(var(--primary) / .5); }
 .transcript-code { font-weight: 700; }
+
+.timeline-unattributed {
+  position: absolute;
+  top: 31px;
+  height: 50px;
+  border: 1px dashed hsl(var(--filler));
+  background: hsl(var(--filler) / 0.14);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 3px;
+}
+
+.timeline-unattributed:hover, .timeline-unattributed:focus-visible {
+  outline: 2px solid hsl(var(--filler));
+  outline-offset: 1px;
+  background: hsl(var(--filler) / 0.3);
+}
+.timeline-analysis-status {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.timeline-gap-actions {
+  position: fixed;
+  z-index: 60;
+  width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow: 0 8px 32px hsl(0 0% 0% / 0.4);
+}

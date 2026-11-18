@@ -9,7 +9,7 @@ import type { ScriptResultKind } from "./scriptAssistance";
 import { locateScriptSync, scriptSections } from "./scriptSync";
 import { matchingPassages, matchingBlocks, type MatchingPassage } from "./scriptMatchingPassages";
 
-export const SCRIPT_MATCH_POLICY = "script-match-v5";
+export const SCRIPT_MATCH_POLICY = "script-match-v6";
 
 // Compare apostrophe styles without changing displayed text or UTF-16 offsets.
 function normalizeApostrophes(text: string): string {
@@ -447,6 +447,7 @@ export function* scriptCandidateBatches(
       if (proposed !== currentText && sameSpokenWords(currentText, proposed)) {
         {
           const written = tokens(proposed);
+          const groups: { from: number; to: number; start: number; end: number }[] = [];
           for (const run of block.runs) {
             const indices = current.flatMap((word, index) =>
               word.from >= run.from && word.to <= run.to ? [index] : [],
@@ -454,6 +455,21 @@ export function* scriptCandidateBatches(
             if (!indices.length) continue;
             const start = indices[0]!,
               end = indices.at(-1)!;
+            const previous = groups.at(-1);
+            // Punctuation without whitespace joins these script words into one
+            // display unit. Replacing them together avoids duplicating the
+            // separator and retaining the space between timed recognition words.
+            if (
+              previous &&
+              start === previous.end + 1 &&
+              /^[^\s]+$/u.test(proposed.slice(written[previous.end]!.to, written[start]!.from))
+            ) {
+              previous.to = run.to;
+              previous.end = end;
+            } else groups.push({ from: run.from, to: run.to, start, end });
+          }
+          for (const { from, to, start, end } of groups) {
+            const before = block.text.slice(from, to);
             const preceding = proposed.slice(
               start ? written[start - 1]!.to : 0,
               written[start]!.from,
@@ -467,15 +483,15 @@ export function* scriptCandidateBatches(
             const formatted =
               prefix + proposed.slice(written[start]!.from, written[end]!.to) + suffix;
             if (
-              normalizeApostrophes(formatted) === normalizeApostrophes(run.text) ||
-              !sameSpokenWords(run.text, formatted)
+              normalizeApostrophes(formatted) === normalizeApostrophes(before) ||
+              !sameSpokenWords(before, formatted)
             )
               continue;
-            const simple = isSimpleFormatting(run.text, formatted) && sentenceStart && sentenceEnd;
+            const simple = isSimpleFormatting(before, formatted) && sentenceStart && sentenceEnd;
             add(
               block,
-              run.from,
-              run.to,
+              from,
+              to,
               formatted,
               simple ? "punctuation" : "uncertain",
               best.passage,

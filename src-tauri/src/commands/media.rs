@@ -82,8 +82,16 @@ pub async fn start_native_recording(
             "voiceover",
             "m4a",
             vec![
-                "-y", "-hide_banner", "-f", "avfoundation", "-i", ":default", "-c:a", "aac",
-                "-b:a", "192k",
+                "-y",
+                "-hide_banner",
+                "-f",
+                "avfoundation",
+                "-i",
+                ":default",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
             ]
             .into_iter()
             .map(String::from)
@@ -200,7 +208,8 @@ pub async fn start_native_recording(
 pub async fn stop_native_recording(state: State<'_, AppState>) -> Result<String, String> {
     let mut session = {
         let mut guard = state.recording.session.lock().await;
-        guard.take()
+        guard
+            .take()
             .ok_or_else(|| "no recording is currently running".to_string())?
     };
 
@@ -221,4 +230,95 @@ pub async fn stop_native_recording(state: State<'_, AppState>) -> Result<String,
     }
 
     Ok(session.output_path.to_string_lossy().to_string())
+}
+
+/// Stream decoded PCM into 20ms peak buckets; never retain the full audio in memory.
+#[tauri::command]
+pub async fn audio_peaks(app: AppHandle, path: String) -> Result<Vec<f32>, String> {
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| e.to_string())?
+        .args([
+            "-v", "error", "-nostdin", "-i", &path, "-map", "0:a:0", "-vn", "-ac", "1", "-ar",
+            "24000", "-f", "s16le", "pipe:1",
+        ])
+        .set_raw_out(true)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut accumulator = PeakAccumulator::default();
+    let mut stderr = String::new();
+    let mut success = false;
+    let deadline = tokio::time::sleep(Duration::from_secs(600));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => {
+                let _ = child.kill();
+                return Err("Waveform extraction timed out".into());
+            }
+            event = rx.recv() => match event {
+                Some(CommandEvent::Stdout(bytes)) => accumulator.push(&bytes),
+                Some(CommandEvent::Stderr(bytes)) => {
+                    if stderr.len() < 4096 { stderr.push_str(&String::from_utf8_lossy(&bytes)); }
+                }
+                Some(CommandEvent::Terminated(exit)) => success = exit.code == Some(0),
+                None => break,
+                _ => {}
+            }
+        }
+    }
+    if !success {
+        return Err(format!("Waveform extraction failed: {stderr}"));
+    }
+    Ok(accumulator.finish())
+}
+
+#[derive(Default)]
+struct PeakAccumulator {
+    pending: Option<u8>,
+    count: usize,
+    peak: f32,
+    peaks: Vec<f32>,
+}
+impl PeakAccumulator {
+    fn push(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            if let Some(low) = self.pending.take() {
+                let sample = i16::from_le_bytes([low, byte]) as f32 / 32768.0;
+                self.peak = self.peak.max(sample.abs());
+                self.count += 1;
+                if self.count == 480 {
+                    self.peaks.push(self.peak);
+                    self.count = 0;
+                    self.peak = 0.0;
+                }
+            } else {
+                self.pending = Some(byte);
+            }
+        }
+    }
+    fn finish(mut self) -> Vec<f32> {
+        if self.count > 0 {
+            self.peaks.push(self.peak);
+        }
+        self.peaks
+    }
+}
+
+#[cfg(test)]
+mod peak_tests {
+    use super::PeakAccumulator;
+    #[test]
+    fn preserves_peaks_across_odd_chunks_and_partial_buckets() {
+        let mut samples = vec![0i16; 481];
+        samples[479] = i16::MIN;
+        samples[480] = 16384;
+        let bytes: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let mut peaks = PeakAccumulator::default();
+        for chunk in bytes.chunks(7) {
+            peaks.push(chunk);
+        }
+        assert_eq!(peaks.finish(), vec![1.0, 0.5]);
+    }
 }
