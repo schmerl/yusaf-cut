@@ -289,7 +289,7 @@ export function extendSentenceStart(project: Project, finding: UnattributedSpeec
         s.id === segment.id
           ? []
           : s.id === target.id
-            ? [{ ...target, sourceIn: segment.sourceIn }]
+            ? [{ ...target, sourceIn: segment.sourceIn, precise: segment.precise || target.precise }]
             : [s],
       ),
     };
